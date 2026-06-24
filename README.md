@@ -26,7 +26,7 @@ Record what you do, bind it to a key, and play it back with per-macro hotkeys, l
 
 ---
 
-## 📸 Screenshot
+## 📸 Visual Representation
 
 <div align="center">
 <img src="https://cdn.discordapp.com/attachments/1457829290497409147/1519377444929278085/image.png?ex=6a3d5603&is=6a3c0483&hm=8b15d34f5cffd06da86f4b03ae28f91facdd94fedbca6bcdf0f880c0a8f0914c&" width="640" alt="Macro Manager Screenshot">
