@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="app.png" width="96" alt="Macro Manager logo">
+<img src="https://github.com/Ralzify/MacroManager/blob/main/Macro/app.png" width="96" alt="Macro Manager Icon">
 
 # Macro Manager
 
@@ -29,10 +29,8 @@ Record what you do, bind it to a key, and play it back with per-macro hotkeys, l
 ## 📸 Screenshot
 
 <div align="center">
-<img src="app.png" width="640" alt="Macro Manager screenshot">
+<img src="https://cdn.discordapp.com/attachments/1457829290497409147/1519377444929278085/image.png?ex=6a3d5603&is=6a3c0483&hm=8b15d34f5cffd06da86f4b03ae28f91facdd94fedbca6bcdf0f880c0a8f0914c&" width="640" alt="Macro Manager Screenshot">
 </div>
-
-> _Replace this with an actual screenshot of the app window for the best first impression._
 
 ---
 
@@ -46,7 +44,7 @@ Record what you do, bind it to a key, and play it back with per-macro hotkeys, l
 
 > **Note:** Because Macro Manager installs a low-level keyboard hook, some antivirus tools or games with anti-cheat may flag or block macro tools. Use it responsibly and only where it's allowed.
 
-### Option B — Build from source
+### Option B — Build from source:
 
 **Requirements**
 - Windows 10 / 11
@@ -64,7 +62,7 @@ cmake --build build --config Release
 
 The executable is produced in `build/Release/`, with the chime sounds copied alongside it automatically.
 
-**Or build with Visual Studio**
+**OR build with Visual Studio**
 
 Open `MacroManager.vcxproj` in Visual Studio, select the **Release / x64** configuration, and build.
 
@@ -112,12 +110,10 @@ Click **Import MGP**, browse to your `.mgp` profile (usually in `Documents\Macro
 
 ## 📄 License
 
-This project is free and open source. **If you paid for this application, you got scammed**.
-
-> Consider adding a formal license (e.g. [MIT](https://choosealicense.com/licenses/mit/)) in a `LICENSE` file to make the terms explicit.
+This project is licensed under a custom attribution license. You can use, modify, and distribute the application, but public forks, releases, installers, and rebrands must keep visible credit to Macro Manager/Ralzify.
 
 ---
 
 <div align="center">
-<sub>Made with ❤️ by Ralzify · <a href="https://github.com/Ralzify/MacroManager">github.com/Ralzify/MacroManager</a></sub>
+<sub>🐼 Made by Ralzify · <a href="https://github.com/Ralzify/MacroManager">github.com/Ralzify/MacroManager</a></sub>
 </div>
