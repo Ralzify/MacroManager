@@ -784,14 +784,15 @@ void Gui::DrawToolbar()
         ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
         ImGui::SameLine(0, 24);
 
-        if (ImGui::Button("Save"))
+        /*if (ImGui::Button("Save"))
         {
             bool CanSave = Persistence::Save(MacroManager::Get().GetMacros(), Persistence::DefaultFilePath());
             StatusMessage = CanSave ? "Macros saved." : "Save failed.";
             StatusTimer = 3.0f;
         }
 
-        ImGui::SameLine(); 
+        ImGui::SameLine();*/
+
         if (ImGui::Button("Import"))  
             ShowImportDialog = true;
 
