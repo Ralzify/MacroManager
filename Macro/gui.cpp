@@ -577,7 +577,7 @@ void Gui::RenderFrame()
 
     if (ImGui::BeginPopupModal("About", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
-        ImGui::Text("Ralzify's Macro Manager | v" APP_VERSION_STRING);
+        ImGui::Text("Ralzify's Macro Manager | " APP_VERSION_STRING);
         ImGui::Separator();
         ImGui::Spacing();
         ImGui::Text("Keyboard & mouse macro recorder/player for Windows.");
