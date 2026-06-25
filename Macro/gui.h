@@ -4,12 +4,13 @@
 #include <d3d11.h>
 #include <string>
 #include "recorder.h"
+#include "version.h"
 
 class Gui
 {
 public:
 
-	std::string Version = " v1.0.0 ";
+	std::string Version = " v" APP_VERSION_STRING " ";
 
     bool Init(HINSTANCE hInstance);
 
@@ -33,6 +34,7 @@ private:
     void DrawActionEditor(const std::string& macroId, int actionIndex);
     void DrawToolbar();
     void DrawStatusBar();
+    void DrawUpdateDialog();
 
     void SetMacroEnabled(const std::string& macroId, bool enabled);
     void PlayToggleChime(bool enabled);
@@ -55,6 +57,10 @@ private:
     bool ShowExportDialog = false;
     bool ShowImportMGP = false;
     bool ShowAbout = false;
+
+    bool ShowUpdateDialog = false;
+    bool HasCheckedForUpdatesThisSession = false;
+    float QuitAfterLaunchingInstallerTimer = -1.0f;
 
     char ImportPathBuf[512] = {};
     char ExportPathBuf[512] = {};

@@ -5,6 +5,7 @@
 #include "macro.h"
 #include "recorder.h"
 #include "sound_player.h"
+#include "updater.h"
 
 #include "ImGui/imgui.h"
 #include "ImGui/imgui_impl_win32.h"
@@ -99,6 +100,9 @@ bool Gui::Init(HINSTANCE hInstance)
     Persistence::Load(MacroManager::Get().GetMacros(), Persistence::DefaultFilePath());
     MacroManager::Get().RebindAll();
     strcpy_s(ExportPathBuf, Persistence::DefaultFilePath().c_str());
+
+    Updater::Get().CheckForUpdatesAsync();
+
     return true;
 }
 
@@ -200,6 +204,30 @@ void Gui::Run()
 
 void Gui::RenderFrame()
 {
+    UpdateState PrevUpdateState = Updater::Get().State();
+    Updater::Get().Poll();
+    UpdateState NewUpdateState = Updater::Get().State();
+
+    if (PrevUpdateState == UpdateState::Checking && NewUpdateState != UpdateState::Checking)
+    {
+        bool IsStartupCheck = !HasCheckedForUpdatesThisSession;
+        HasCheckedForUpdatesThisSession = true;
+
+        if (!IsStartupCheck || NewUpdateState == UpdateState::UpdateAvailable)
+            ShowUpdateDialog = true;
+    }
+
+    if (PrevUpdateState != UpdateState::Launching && NewUpdateState == UpdateState::Launching)
+        QuitAfterLaunchingInstallerTimer = 1.5f;
+
+    if (QuitAfterLaunchingInstallerTimer >= 0.0f)
+    {
+        QuitAfterLaunchingInstallerTimer -= 1.0f / 60.0f;
+
+        if (QuitAfterLaunchingInstallerTimer <= 0.0f)
+            PostMessageW(Window, WM_CLOSE, 0, 0);
+    }
+
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
@@ -549,7 +577,7 @@ void Gui::RenderFrame()
 
     if (ImGui::BeginPopupModal("About", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
-        ImGui::Text("Ralzify's Macro Manager | v1.0");
+        ImGui::Text("Ralzify's Macro Manager | v" APP_VERSION_STRING);
         ImGui::Separator();
         ImGui::Spacing();
         ImGui::Text("Keyboard & mouse macro recorder/player for Windows.");
@@ -559,9 +587,17 @@ void Gui::RenderFrame()
 		ImGui::SameLine();
 		ImGui::TextColored({ 0.4f,0.7f,1.0f,1.0f }, "github.com/Ralzify/MacroManager");
         ImGui::Spacing();
+        if (ImGui::Button("Check for Updates", { 160,0 }))
+        {
+            if (Updater::Get().State() != UpdateState::Checking && Updater::Get().State() != UpdateState::Downloading)
+                Updater::Get().CheckForUpdatesAsync();
+        }
+        ImGui::Spacing();
         if (ImGui::Button("Close", { 120,0 })) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
+
+    DrawUpdateDialog();
 
     if (ShowRecordOptions) 
     { 
@@ -915,6 +951,119 @@ void Gui::DrawStatusBar()
 		ImGui::TextDisabled("  -  ");
 		ImGui::SameLine(0, 2);
         ImGui::TextDisabled("  %zu macro(s)  |  %zu enabled", tot, en);
+    }
+}
+
+void Gui::DrawUpdateDialog()
+{
+    UpdateState State = Updater::Get().State();
+
+    if (ShowUpdateDialog)
+    {
+        ImGui::OpenPopup("Update Notifier");
+        ShowUpdateDialog = false;
+    }
+
+    if (ImGui::BeginPopupModal("Update Notifier", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        const UpdateInfo& Info = Updater::Get().PendingUpdate();
+
+        switch (State)
+        {
+        case UpdateState::UpdateAvailable:
+        {
+            ImGui::Text("A new version of Macro Manager is available!");
+            ImGui::Spacing();
+            ImGui::Text("Installed version:");
+            ImGui::SameLine();
+            ImGui::TextColored({ 0.7f,0.7f,0.7f,1 }, APP_VERSION_STRING);
+            ImGui::Text("Latest version:    ");
+            ImGui::SameLine();
+            ImGui::TextColored({ 0.4f,0.9f,0.5f,1 }, "%s", Info.LatestVersion.c_str());
+
+            if (!Info.ReleaseNotes.empty())
+            {
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Spacing();
+                ImGui::TextDisabled("What's new:");
+                ImGui::BeginChild("##relnotes", { 420, 120 }, true);
+                ImGui::TextWrapped("%s", Info.ReleaseNotes.c_str());
+                ImGui::EndChild();
+            }
+
+            ImGui::Spacing();
+
+            if (ImGui::Button("Update Now", { 140,0 }))
+                Updater::Get().BeginDownloadAndInstallAsync();
+
+            ImGui::SameLine();
+
+            if (ImGui::Button("Remind Me Later", { 140,0 }))
+            {
+                Updater::Get().RemindLater();
+                ImGui::CloseCurrentPopup();
+            }
+
+            break;
+        }
+
+        case UpdateState::Downloading:
+        {
+            ImGui::Text("Downloading the update...");
+            ImGui::Spacing();
+            float Progress = Updater::Get().DownloadProgress();
+
+            if (Progress >= 0.0f)
+                ImGui::ProgressBar(Progress, { 320, 0 });
+            else
+                ImGui::ProgressBar(-1.0f * (float)ImGui::GetTime(), { 320, 0 }, "Downloading...");
+
+            ImGui::Spacing();
+            ImGui::TextDisabled("This won't take long.");
+            break;
+        }
+
+        case UpdateState::ReadyToInstall:
+        case UpdateState::Launching:
+        {
+            ImGui::Text("Starting the installer...");
+            ImGui::Spacing();
+            ImGui::TextDisabled("Macro Manager will close in a moment so setup can finish.");
+            break;
+        }
+
+        case UpdateState::Failed:
+        {
+            ImGui::TextColored({ 1.0f,0.4f,0.4f,1 }, "The update could not be completed.");
+            ImGui::Spacing();
+            ImGui::TextWrapped("%s", Updater::Get().LastError().c_str());
+            ImGui::Spacing();
+
+            if (ImGui::Button("Try Again", { 120,0 }))
+                Updater::Get().CheckForUpdatesAsync();
+
+            ImGui::SameLine();
+
+            if (ImGui::Button("Close", { 120,0 }))
+                ImGui::CloseCurrentPopup();
+
+            break;
+        }
+
+        default:
+        {
+            ImGui::Text("You're already on the latest version.");
+            ImGui::Spacing();
+
+            if (ImGui::Button("Close", { 120,0 }))
+                ImGui::CloseCurrentPopup();
+
+            break;
+        }
+        }
+
+        ImGui::EndPopup();
     }
 }
 

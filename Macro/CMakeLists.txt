@@ -1,4 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
+# Keep this VERSION in sync with APP_VERSION_STRING in version.h and
+# MyAppVersion in installer/MacroManager.iss.
 project(MacroApp VERSION 1.0.0)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -46,6 +48,7 @@ set(APP_SOURCES
     ${SRC_DIR}/gui.cpp
     ${SRC_DIR}/recorder.cpp
     ${SRC_DIR}/sound_player.cpp
+    ${SRC_DIR}/updater.cpp
     ${CMAKE_SOURCE_DIR}/app.rc
 )
 
@@ -67,6 +70,7 @@ target_link_libraries(MacroApp PRIVATE
     shell32
     winmm
     windowscodecs
+    winhttp
 )
 
 # Copy the toggle-chime sound files next to the built executable.
