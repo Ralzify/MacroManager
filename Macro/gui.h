@@ -55,6 +55,7 @@ private:
 
     bool ShowImportDialog = false;
     bool ShowExportDialog = false;
+    bool ShowExportSelectedDialog = false;
     bool ShowImportMGP = false;
     bool ShowAbout = false;
 
@@ -64,6 +65,7 @@ private:
 
     char ImportPathBuf[512] = {};
     char ExportPathBuf[512] = {};
+    char ExportSelectedPathBuf[512] = {};
     char MGPPathBuf[512] = {};
 
     std::string StatusMessage;

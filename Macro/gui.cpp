@@ -478,10 +478,27 @@ void Gui::RenderFrame()
 
         ImGui::EndPopup();
     }
-    if (ShowExportDialog) 
-    { 
-        ImGui::OpenPopup("Export Macros"); 
-        ShowExportDialog = false; 
+    if (ShowExportDialog)
+    {
+        ImGui::OpenPopup("Export Macros");
+        ShowExportDialog = false;
+    }
+
+    if (ShowExportSelectedDialog)
+    {
+        if (!SelectedMacroId.empty())
+        {
+            if (auto* Macro = MacroManager::Get().FindMacro(SelectedMacroId))
+            {
+                std::string Base = Persistence::DefaultFilePath();
+                auto Slash = Base.find_last_of("\\/");
+                std::string Dir = (Slash != std::string::npos) ? Base.substr(0, Slash + 1) : "";
+                std::string Suggested = Dir + Macro->Name + ".json";
+                strncpy_s(ExportSelectedPathBuf, Suggested.c_str(), sizeof(ExportSelectedPathBuf) - 1);
+            }
+        }
+        ImGui::OpenPopup("Export Selected Macro");
+        ShowExportSelectedDialog = false;
     }
 
     if (ImGui::BeginPopupModal("Export Macros", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
@@ -511,7 +528,7 @@ void Gui::RenderFrame()
                     char tmp[512]; strncpy_s(tmp, ExportPathBuf, sizeof(tmp) - 1);
                     char* lastSlash = strrchr(tmp, '\\');
 
-                    if (!lastSlash) 
+                    if (!lastSlash)
                         lastSlash = strrchr(tmp, '/');
 
                     if (lastSlash)
@@ -557,7 +574,7 @@ void Gui::RenderFrame()
 
         ImGui::Spacing();
 
-        if (ImGui::Button("Export", { 120,0 })) 
+        if (ImGui::Button("Export", { 120,0 }))
         {
             bool ok = Persistence::Save(MacroManager::Get().GetMacros(), ExportPathBuf);
             StatusMessage = ok ? "Macros exported." : "Export failed — check the path.";
@@ -569,8 +586,101 @@ void Gui::RenderFrame()
         ImGui::EndPopup();
     }
 
-    if (ShowAbout) 
-    { 
+    if (ImGui::BeginPopupModal("Export Selected Macro", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        if (auto* Macro = MacroManager::Get().FindMacro(SelectedMacroId))
+            ImGui::Text("Exporting: %s", Macro->Name.c_str());
+
+        ImGui::Spacing();
+        ImGui::Text("Save to path:");
+        ImGui::SetNextItemWidth(360);
+        ImGui::InputText("##esp", ExportSelectedPathBuf, sizeof(ExportSelectedPathBuf));
+
+        ImGui::SameLine();
+        if (ImGui::Button("Browse...##esel"))
+        {
+            IFileSaveDialog* pDlg = nullptr;
+
+            if (SUCCEEDED(CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pDlg))))
+            {
+                COMDLG_FILTERSPEC filter[] = {
+                    { L"JSON Files", L"*.json" },
+                    { L"All Files",  L"*.*"    }
+                };
+
+                pDlg->SetFileTypes(2, filter);
+                pDlg->SetDefaultExtension(L"json");
+                pDlg->SetTitle(L"Export Selected Macro");
+
+                if (ExportSelectedPathBuf[0] != '\0')
+                {
+                    char tmp[512]; strncpy_s(tmp, ExportSelectedPathBuf, sizeof(tmp) - 1);
+                    char* lastSlash = strrchr(tmp, '\\');
+
+                    if (!lastSlash)
+                        lastSlash = strrchr(tmp, '/');
+
+                    if (lastSlash)
+                    {
+                        *lastSlash = '\0';
+                        wchar_t wdir[512] = {};
+                        MultiByteToWideChar(CP_ACP, 0, tmp, -1, wdir, 512);
+                        IShellItem* pFolder = nullptr;
+
+                        if (SUCCEEDED(SHCreateItemFromParsingName(wdir, nullptr, IID_PPV_ARGS(&pFolder))))
+                        {
+                            pDlg->SetFolder(pFolder);
+                            pFolder->Release();
+                        }
+
+                        wchar_t wfile[512] = {};
+                        MultiByteToWideChar(CP_ACP, 0, lastSlash + 1, -1, wfile, 512);
+                        pDlg->SetFileName(wfile);
+                    }
+                }
+
+                if (SUCCEEDED(pDlg->Show(Window)))
+                {
+                    IShellItem* pItem = nullptr;
+
+                    if (SUCCEEDED(pDlg->GetResult(&pItem)))
+                    {
+                        PWSTR pPath = nullptr;
+
+                        if (SUCCEEDED(pItem->GetDisplayName(SIGDN_FILESYSPATH, &pPath)))
+                        {
+                            WideCharToMultiByte(CP_ACP, 0, pPath, -1, ExportSelectedPathBuf, sizeof(ExportSelectedPathBuf), nullptr, nullptr);
+                            CoTaskMemFree(pPath);
+                        }
+
+                        pItem->Release();
+                    }
+                }
+
+                pDlg->Release();
+            }
+        }
+
+        ImGui::Spacing();
+
+        if (ImGui::Button("Export##selgo", { 120,0 }))
+        {
+            bool ok = false;
+
+            if (auto* Macro = MacroManager::Get().FindMacro(SelectedMacroId))
+                ok = Persistence::SaveOne(*Macro, ExportSelectedPathBuf);
+
+            StatusMessage = ok ? "Macro exported." : "Export failed — check the path.";
+            StatusTimer = 4.0f; ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel##selcancel", { 120,0 })) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    if (ShowAbout)
+    {
         ImGui::OpenPopup("About");
         ShowAbout = false;
     }
@@ -832,9 +942,9 @@ void Gui::DrawToolbar()
         if (ImGui::Button("Import"))  
             ShowImportDialog = true;
 
-        ImGui::SameLine(); 
-        if (ImGui::Button("Export"))  
-            ShowExportDialog = true;
+        ImGui::SameLine();
+        if (ImGui::Button("Export"))
+            ShowExportSelectedDialog = true;
 
         ImGui::SameLine(0, 24);
         ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);

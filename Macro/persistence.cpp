@@ -102,6 +102,34 @@ bool Persistence::Save(const std::vector<Macro>& Macros, const std::string& File
     catch (...) { return false; }
 }
 
+bool Persistence::SaveOne(const Macro& Macro, const std::string& FilePath)
+{
+    try
+    {
+        std::string Directory = FilePath;
+        auto Slash = Directory.find_last_of("\\/");
+
+        if (Slash != std::string::npos)
+        {
+            Directory = Directory.substr(0, Slash);
+            CreateDirectoryA(Directory.c_str(), nullptr);
+        }
+
+        std::ofstream File(FilePath);
+
+        if (!File.is_open())
+            return false;
+
+        json Root = json::array();
+        Root.push_back(MacroToJson(Macro));
+
+        File << Root.dump(4);
+        return true;
+    }
+
+    catch (...) { return false; }
+}
+
 bool Persistence::Load(std::vector<Macro>& Macros, const std::string& FilePath)
 {
     try
