@@ -8,22 +8,70 @@ HookManager& HookManager::Get()
     return Instance;
 }
 
+DWORD WINAPI HookManager::HookThreadProc(LPVOID lpParam)
+{
+    HookManager* Self = static_cast<HookManager*>(lpParam);
+
+    Self->Hook = SetWindowsHookExW(
+        WH_KEYBOARD_LL,
+        LowLevelKeyboardProc,
+        GetModuleHandleW(nullptr),
+        0
+    );
+
+    if (!Self->Hook)
+        return 1;
+
+    MSG msg = {};
+    while (GetMessageW(&msg, nullptr, 0, 0) > 0)
+    {
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+
+    if (Self->Hook)
+    {
+        UnhookWindowsHookEx(Self->Hook);
+        Self->Hook = nullptr;
+    }
+
+    return 0;
+}
+
 bool HookManager::Install()
 {
-    if (Hook) 
+    if (HookThread)
         return true;
 
-    Hook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, GetModuleHandleW(nullptr), 0);
-    return Hook != nullptr;
+    HookThread = CreateThread(nullptr, 0, HookThreadProc, this, 0, &HookThreadId);
+
+    if (!HookThread)
+        return false;
+
+    for (int i = 0; i < 200; ++i)
+    {
+        if (Hook)
+            return true;
+
+        Sleep(10);
+    }
+
+    Uninstall();
+    return false;
 }
 
 void HookManager::Uninstall()
 {
-    if (Hook)
+    if (HookThread)
     {
-        UnhookWindowsHookEx(Hook);
-        Hook = nullptr;
+        PostThreadMessageW(HookThreadId, WM_QUIT, 0, 0);
+        WaitForSingleObject(HookThread, 3000);
+        CloseHandle(HookThread);
+        HookThread = nullptr;
+        HookThreadId = 0;
     }
+
+    Hook = nullptr;
 }
 
 void HookManager::RegisterCallback(const std::string& id, int vkCode, KeyCallback cb)

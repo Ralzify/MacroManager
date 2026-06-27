@@ -112,14 +112,25 @@ void Gui::Run()
     UpdateWindow(Window);
     MSG msg = {};
 
+    LARGE_INTEGER Freq, LastFrame;
+    QueryPerformanceFrequency(&Freq);
+    QueryPerformanceCounter(&LastFrame);
+    const double FrameBudget = 1.0 / 60.0;
+ 
     while (msg.message != WM_QUIT)
     {
-        if (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
+        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
         {
-            TranslateMessage(&msg); DispatchMessageW(&msg); 
-            continue;
-        }
+            if (msg.message == WM_QUIT)
+                break;
 
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+ 
+        if (msg.message == WM_QUIT)
+            break;
+ 
         if (CapturingKey)
         {
             for (int vk = 8; vk < 256; ++vk)
@@ -128,17 +139,17 @@ void Gui::Run()
                 {
                     if (auto* Macro = MacroManager::Get().FindMacro(CapturingMacroId))
                         Macro->TriggerKey = vk; MacroManager::Get().RebindAll();
-
+ 
                     CapturingKey = false; break;
                 }
             }
         }
-
+ 
         if (!CapturingKey && !CapturingRecordKey && !RecordOptionsOpen && RecordOptions.ToggleKey != 0 && !SelectedMacroId.empty())
         {
             static bool WasDown = false;
             bool IsDown = (GetAsyncKeyState(RecordOptions.ToggleKey) & 0x8000) != 0;
-
+ 
             if (IsDown && !WasDown)
             {
                 if (!Recorder::Get().IsRecording())
@@ -146,7 +157,7 @@ void Gui::Run()
                 else
                 {
                     auto Rec = Recorder::Get().Stop();
-
+ 
                     if (!Rec.empty())
                     {
                         if (auto* Macro = MacroManager::Get().FindMacro(SelectedMacroId))
@@ -162,7 +173,7 @@ void Gui::Run()
                     }
                 }
             }
-
+ 
             WasDown = IsDown;
         }
         else
@@ -265,10 +276,10 @@ void Gui::RenderFrame()
     DrawStatusBar();
     ImGui::End();
 
-    if (ShowImportDialog) 
-    { 
-        ImGui::OpenPopup("Import Macros"); 
-        ShowImportDialog = false; 
+    if (ShowImportDialog)
+    {
+        ImGui::OpenPopup("Import Macros");
+        ShowImportDialog = false;
     }
 
     if (ImGui::BeginPopupModal("Import Macros", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
@@ -298,7 +309,7 @@ void Gui::RenderFrame()
                     char tmp[512]; strncpy_s(tmp, ImportPathBuf, sizeof(tmp) - 1);
                     char* LastSlash = strrchr(tmp, '\\');
 
-                    if (!LastSlash) 
+                    if (!LastSlash)
                         LastSlash = strrchr(tmp, '/');
 
                     if (LastSlash)
@@ -336,14 +347,14 @@ void Gui::RenderFrame()
         }
 
         ImGui::Spacing();
-        if (ImGui::Button("Import", { 120,0 })) 
+        if (ImGui::Button("Import", { 120,0 }))
         {
-            bool CanImport = Persistence::Load(MacroManager::Get().GetMacros(), ImportPathBuf);
+            int n = Persistence::Append(MacroManager::Get().GetMacros(), ImportPathBuf);
 
-            if (CanImport)
+            if (n >= 0)
                 MacroManager::Get().RebindAll();
 
-            StatusMessage = CanImport ? "Macros imported." : "Import failed.";
+            StatusMessage = (n >= 0) ? "Imported " + std::to_string(n) + " macro(s)." : "Import failed.";
             StatusTimer = 4.0f; ImGui::CloseCurrentPopup();
         }
 
@@ -892,7 +903,7 @@ void Gui::RenderFrame()
     Context->OMSetRenderTargets(1, &MainRenderTargetView, nullptr);
     Context->ClearRenderTargetView(MainRenderTargetView, clr);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-    SwapChain->Present(1, 0);
+    SwapChain->Present(0, 0);
 }
 
 void Gui::DrawToolbar()

@@ -25,9 +25,13 @@ private:
 
     static LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
 
-    HHOOK Hook = nullptr;
+    static DWORD WINAPI HookThreadProc(LPVOID lpParam);
 
-    struct Entry 
+    HANDLE HookThread = nullptr;
+    DWORD  HookThreadId = 0;
+    HHOOK  Hook = nullptr;
+
+    struct Entry
     {
         int VKCode = 0;
         KeyCallback Callback;

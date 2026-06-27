@@ -87,7 +87,7 @@ bool Persistence::Save(const std::vector<Macro>& Macros, const std::string& File
 
         std::ofstream File(FilePath);
 
-        if (!File.is_open()) 
+        if (!File.is_open())
             return false;
 
         json Root = json::array();
@@ -154,6 +154,33 @@ bool Persistence::Load(std::vector<Macro>& Macros, const std::string& FilePath)
     catch (...) { return false; }
 }
 
+int Persistence::Append(std::vector<Macro>& Macros, const std::string& FilePath)
+{
+    try
+    {
+        std::ifstream File(FilePath);
+        if (!File.is_open()) return -1;
+
+        json Root;
+        File >> Root;
+
+        if (!Root.is_array())
+            return -1;
+
+        int Imported = 0;
+
+        for (const auto& j : Root)
+        {
+            Macros.push_back(MacroFromJson(j));
+            ++Imported;
+        }
+
+        return Imported;
+    }
+
+    catch (...) { return -1; }
+}
+
 std::string Persistence::DefaultFilePath()
 {
     char path[MAX_PATH] = {};
@@ -180,7 +207,9 @@ static int MgpKeyNameToVK(const std::string& Name)
             return (int)Character;
 
         SHORT vks = VkKeyScanA(Character);
-        if (vks != -1) return vks & 0xFF;
+
+        if (vks != -1) 
+            return vks & 0xFF;
     }
 
     if (Name == "ESC")
@@ -285,7 +314,6 @@ static void ParseMgpEvent(const std::string& Value, std::vector<MacroAction>& Ou
 
     if (Value.size() > 2 && Value[0] == 'M' && Value[1] == ' ')
     {
-        // Parse "(x,y)"
         size_t lp = Value.find('(');
         size_t cm = Value.find(',', lp);
         size_t rp = Value.find(')', cm);
@@ -321,7 +349,7 @@ static void ParseMgpEvent(const std::string& Value, std::vector<MacroAction>& Ou
         {
             size_t Space = Inner.rfind(' ');
 
-            if (Space == std::string::npos) 
+            if (Space == std::string::npos)
                 return;
 
             KeyName = Trim(Inner.substr(0, Space));
@@ -346,7 +374,7 @@ static void ParseMgpEvent(const std::string& Value, std::vector<MacroAction>& Ou
 
                 if (cm != std::string::npos && rp != std::string::npos)
                 {
-                    try 
+                    try
                     {
                         mx = std::stoi(Value.substr(lp + 1, cm - lp - 1));
                         my = std::stoi(Value.substr(cm + 1, rp - cm - 1));
@@ -389,7 +417,7 @@ int Persistence::ImportMGP(std::vector<Macro>& macros, const std::string& FilePa
 {
     std::ifstream File(FilePath);
 
-    if (!File.is_open()) 
+    if (!File.is_open())
         return -1;
 
     static std::mt19937_64 rng(std::random_device{}());
@@ -398,7 +426,7 @@ int Persistence::ImportMGP(std::vector<Macro>& macros, const std::string& FilePa
         std::ostringstream oss;
         oss << std::hex << std::setw(16) << std::setfill('0') << d(rng) << std::setw(16) << std::setfill('0') << d(rng);
         return oss.str();
-    };
+        };
 
     int Imported = 0;
     Macro Current;
@@ -408,8 +436,6 @@ int Persistence::ImportMGP(std::vector<Macro>& macros, const std::string& FilePa
         {
             if (InMacro && !Current.Name.empty())
             {
-                // Collapse adjacent KeyDown+KeyUp pairs with no events in between
-                // into KeyPress actions for cleanliness
                 std::vector<MacroAction> collapsed;
                 for (size_t i = 0; i < Current.Actions.size(); ++i)
                 {
@@ -421,7 +447,7 @@ int Persistence::ImportMGP(std::vector<Macro>& macros, const std::string& FilePa
                         MacroAction kp = Current.Actions[i];
                         kp.Type = ActionType::KeyPress;
                         collapsed.push_back(kp);
-                        ++i; // skip the KeyUp
+                        ++i;
                     }
                     else
                     {
@@ -442,7 +468,7 @@ int Persistence::ImportMGP(std::vector<Macro>& macros, const std::string& FilePa
     {
         Line = Trim(Line);
 
-        if (Line.empty()) 
+        if (Line.empty())
             continue;
 
         if (Line.front() == '[' && Line.back() == ']')
