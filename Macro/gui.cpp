@@ -122,10 +122,11 @@ void Gui::Run()
     LARGE_INTEGER Freq, LastFrame;
     QueryPerformanceFrequency(&Freq);
     QueryPerformanceCounter(&LastFrame);
-    const double FrameBudget = 1.0 / 60.0;
- 
+
     while (msg.message != WM_QUIT)
     {
+        MsgWaitForMultipleObjectsEx(0, nullptr, 16, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+
         while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
         {
             if (msg.message == WM_QUIT)
@@ -230,6 +231,14 @@ void Gui::Run()
 
         if (StatusTimer > 0.0f)
             StatusTimer -= static_cast<float>(DeltaSeconds);
+
+        if (IsIconic(Window))
+            continue;
+
+        if (SwapChainOccluded && SwapChain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED)
+            continue;
+
+        SwapChainOccluded = false;
 
         RenderFrame();
     }
@@ -973,7 +982,9 @@ void Gui::RenderFrame()
     Context->OMSetRenderTargets(1, &MainRenderTargetView, nullptr);
     Context->ClearRenderTargetView(MainRenderTargetView, clr);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-    SwapChain->Present(0, 0);
+
+    HRESULT PresentResult = SwapChain->Present(1, 0);
+    SwapChainOccluded = (PresentResult == DXGI_STATUS_OCCLUDED);
 }
 
 void Gui::DrawToolbar()

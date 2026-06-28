@@ -22,6 +22,7 @@ inline const std::vector<ChangelogVersion>& GetChangelog()
                 "If \"Lock Input to App\" is enabled on the selected macro, recording will be blocked unless capturing input from that app.",
                 "You can now organize your macros by dragging them in any order.",
                 "Added foundational keyboard shortcut support to the macros bar on the left.",
+				"Attempted to fix an issue that was causing the app to eat at more CPU than it should.",
             }
         },
     };

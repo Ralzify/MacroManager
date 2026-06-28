@@ -12,7 +12,7 @@
 ; ============================================================================
 
 #define MyAppName        "Macro Manager"
-#define MyAppVersion     "1.0.3"
+#define MyAppVersion     "1.0.4"
 #define MyAppPublisher   "Ralzify"
 #define MyAppURL         "https://github.com/Ralzify/MacroManager"
 #define MyAppExeName     "Macro Manager.exe"

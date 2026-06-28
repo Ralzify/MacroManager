@@ -65,6 +65,7 @@ private:
     ID3D11DeviceContext* Context = nullptr;
     IDXGISwapChain* SwapChain = nullptr;
     ID3D11RenderTargetView* MainRenderTargetView = nullptr;
+    bool SwapChainOccluded = false;
 
     ID3D11ShaderResourceView* IconTexture = nullptr;
     int IconWidth = 0;
