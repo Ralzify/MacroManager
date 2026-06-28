@@ -1390,19 +1390,37 @@ void Gui::DrawMacroList()
 {
     ImGui::Text("Macros"); ImGui::Separator(); ImGui::Spacing();
 
+    HandleMacroListShortcuts();
+
     ImDrawList* DrawList = ImGui::GetWindowDrawList();
     const float RowH = ImGui::GetFrameHeight();
+    const float ROW_STRIDE = ImGui::GetFrameHeightWithSpacing();
 
-    for (auto& Macro : MacroManager::Get().GetMacros())
+    auto& Macros = MacroManager::Get().GetMacros();
+
+    bool DragFloatActive = false;
+    std::string DragFloatLabel, DragFloatKey;
+    float DragFloatX = 0.0f, DragFloatW = 0.0f;
+    bool DragFloatRunning = false;
+    float ListTopY = 0.0f, ListBottomY = 0.0f;
+
+    for (int i = 0; i < (int)Macros.size(); ++i)
     {
+        auto& Macro = Macros[i];
         ImGui::PushID(Macro.ID.c_str());
 
         const ImVec2 RowMin = ImGui::GetCursorScreenPos();
         const float  RowW = ImGui::GetContentRegionAvail().x;
         const ImVec2 RowMax = { RowMin.x + RowW, RowMin.y + RowH };
 
+        if (i == 0)
+            ListTopY = RowMin.y;
+
+        ListBottomY = RowMin.y;
+
         const bool IsSelected = (SelectedMacroId == Macro.ID);
         const bool Running = MacroManager::Get().IsRunning(Macro.ID);
+        const bool IsDragging = (MacroDragIdx == i);
 
         bool Enabled = Macro.Enabled;
         if (ImGui::Checkbox("##en", &Enabled))
@@ -1413,15 +1431,21 @@ void Gui::DrawMacroList()
         const ImVec2 RestPos = ImGui::GetCursorScreenPos();
         const float  RestW = RowMax.x - RestPos.x;
 
-        if (ImGui::InvisibleButton("##sel", { RestW, RowH }))
-        {
-            SelectedMacroId = Macro.ID; EditActionIdx = -1;
-        }
+        ImGui::InvisibleButton("##sel", { RestW, RowH });
 
         const bool Hovered = ImGui::IsItemHovered();
 
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+        {
+            SelectedMacroId = Macro.ID; EditActionIdx = -1;
+            MacroDragIdx = i;
+            MacroDragStartY = ImGui::GetIO().MousePos.y;
+            MacroDragOffsetY = ImGui::GetIO().MousePos.y - RowMin.y;
+            MacroDragMoved = false;
+        }
+
         const float SelAnim = AnimTo(ImGui::GetID("sel"), IsSelected ? 1.0f : 0.0f, 14.0f);
-        const float HovAnim = AnimTo(ImGui::GetID("hov"), Hovered ? 1.0f : 0.0f, 16.0f);
+        const float HovAnim = AnimTo(ImGui::GetID("hov"), (Hovered && !IsDragging) ? 1.0f : 0.0f, 16.0f);
 
         const ImVec2 HlMin = { RestPos.x, RowMin.y };
 
@@ -1434,20 +1458,100 @@ void Gui::DrawMacroList()
         if (SelAnim > 0.001f)
             DrawList->AddRectFilled(HlMin, { HlMin.x + 3.0f, RowMax.y }, ImGui::GetColorU32(ImVec4(0.45f, 0.65f, 1.0f, SelAnim)), 2.0f);
 
-        if (Running)
+        std::string KeyText;
+        if (Macro.TriggerKey != 0)
+            KeyText = "[" + VKCodeToName(Macro.TriggerKey) + "]";
+
+        if (IsDragging)
+        {
+            DrawList->AddRect(HlMin, RowMax, IM_COL32(90, 150, 255, 130), 5.0f, 0, 1.5f);
+
+            DragFloatActive = true;
+            DragFloatLabel = Macro.Name;
+            DragFloatKey = KeyText;
+            DragFloatRunning = Running;
+            DragFloatX = RestPos.x;
+            DragFloatW = RowMax.x - RestPos.x;
+        }
+
+        const ImU32 TextCol = IsDragging ? ImGui::GetColorU32(ImVec4(0.6f, 0.8f, 1.0f, 0.30f)) : ImGui::GetColorU32(ImGuiCol_Text);
+
+        if (Running && !IsDragging)
             DrawList->AddCircleFilled({ RestPos.x + 4.0f, RowMin.y + RowH * 0.5f }, 4.0f, IM_COL32(80, 230, 120, 255));
 
         const float TextY = RowMin.y + (RowH - ImGui::GetTextLineHeight()) * 0.5f;
-        DrawList->AddText({ RestPos.x + 14.0f, TextY }, ImGui::GetColorU32(ImGuiCol_Text), Macro.Name.c_str());
+        DrawList->AddText({ RestPos.x + 14.0f, TextY }, TextCol, Macro.Name.c_str());
 
-        if (Macro.TriggerKey != 0)
+        if (!KeyText.empty())
         {
-            std::string KeyText = "[" + VKCodeToName(Macro.TriggerKey) + "]";
             float KeyW = ImGui::CalcTextSize(KeyText.c_str()).x;
-            DrawList->AddText({ RowMax.x - KeyW - 4.0f, TextY }, ImGui::GetColorU32(ImGuiCol_TextDisabled), KeyText.c_str());
+            ImU32 KeyCol = IsDragging ? ImGui::GetColorU32(ImVec4(0.6f, 0.8f, 1.0f, 0.25f)) : ImGui::GetColorU32(ImGuiCol_TextDisabled);
+            DrawList->AddText({ RowMax.x - KeyW - 4.0f, TextY }, KeyCol, KeyText.c_str());
         }
 
         ImGui::PopID();
+    }
+
+    if (MacroDragIdx >= 0 && MacroDragIdx < (int)Macros.size())
+    {
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        {
+            float MouseY = ImGui::GetIO().MousePos.y;
+            float deltaY = MouseY - MacroDragStartY;
+            int Steps = static_cast<int>(deltaY / ROW_STRIDE);
+
+            if (Steps != 0)
+            {
+                int target = MacroDragIdx + Steps;
+                target = (target < 0) ? 0 : (target >= (int)Macros.size() ? (int)Macros.size() - 1 : target);
+
+                while (MacroDragIdx < target)
+                {
+                    std::swap(Macros[MacroDragIdx], Macros[MacroDragIdx + 1]);
+                    MacroDragIdx++;
+                    MacroDragMoved = true;
+                }
+
+                while (MacroDragIdx > target)
+                {
+                    std::swap(Macros[MacroDragIdx], Macros[MacroDragIdx - 1]);
+                    MacroDragIdx--;
+                    MacroDragMoved = true;
+                }
+
+                MacroDragStartY = MouseY;
+            }
+        }
+        else
+        {
+            MacroDragIdx = -1;
+            MacroDragMoved = false;
+        }
+    }
+
+    if (MacroDragIdx >= 0 && DragFloatActive)
+    {
+        float FloatY = ImGui::GetIO().MousePos.y - MacroDragOffsetY;
+        FloatY = (FloatY < ListTopY) ? ListTopY : (FloatY > ListBottomY ? ListBottomY : FloatY);
+
+        ImVec2 fMin = { DragFloatX - 4.0f, FloatY - 1.0f };
+        ImVec2 fMax = { DragFloatX + DragFloatW + 4.0f, FloatY + RowH + 1.0f };
+
+        DrawList->AddRectFilled(fMin, fMax, IM_COL32(38, 66, 130, 235), 5.0f);
+        DrawList->AddRect(fMin, fMax, IM_COL32(90, 150, 255, 255), 5.0f, 0, 1.5f);
+
+        const float TextY = FloatY + (RowH - ImGui::GetTextLineHeight()) * 0.5f;
+
+        if (DragFloatRunning)
+            DrawList->AddCircleFilled({ DragFloatX + 4.0f, FloatY + RowH * 0.5f }, 4.0f, IM_COL32(80, 230, 120, 255));
+
+        DrawList->AddText({ DragFloatX + 14.0f, TextY }, IM_COL32(225, 238, 255, 255), DragFloatLabel.c_str());
+
+        if (!DragFloatKey.empty())
+        {
+            float KeyW = ImGui::CalcTextSize(DragFloatKey.c_str()).x;
+            DrawList->AddText({ DragFloatX + DragFloatW - KeyW - 4.0f, TextY }, IM_COL32(180, 200, 230, 200), DragFloatKey.c_str());
+        }
     }
 }
 
@@ -1619,6 +1723,103 @@ void Gui::HandleActionListShortcuts(Macro& MacroRef)
 
     if (ImGui::Shortcut(ImGuiKey_Escape, ImGuiInputFlags_RouteFocused))
         ClearActionSelection();
+}
+
+void Gui::CopySelectedMacro()
+{
+    if (SelectedMacroId.empty())
+        return;
+
+    Macro* Macro = MacroManager::Get().FindMacro(SelectedMacroId);
+
+    if (!Macro)
+        return;
+
+    MacroClipboard = *Macro;
+    MacroClipboardValid = true;
+
+    StatusMessage = "Copied macro \"" + Macro->Name + "\".";
+    StatusTimer = 2.5f;
+}
+
+void Gui::PasteMacro()
+{
+    if (!MacroClipboardValid)
+        return;
+
+    auto& Macros = MacroManager::Get().GetMacros();
+
+    Macro& NewMacro = MacroManager::Get().AddMacro(MacroClipboard.Name + " (Copy)");
+    std::string NewId = NewMacro.ID;
+
+    NewMacro.TriggerKey = 0;
+    NewMacro.Enabled = MacroClipboard.Enabled;
+    NewMacro.Repeat = MacroClipboard.Repeat;
+    NewMacro.RepeatCount = MacroClipboard.RepeatCount;
+    NewMacro.LockInputToApp = MacroClipboard.LockInputToApp;
+    NewMacro.LockedAppName = MacroClipboard.LockedAppName;
+    NewMacro.Actions = MacroClipboard.Actions;
+
+    int NewIdx = (int)Macros.size() - 1;
+    int InsertAt = NewIdx;
+
+    if (!SelectedMacroId.empty())
+    {
+        for (int i = 0; i < (int)Macros.size(); ++i)
+        {
+            if (Macros[i].ID == SelectedMacroId)
+            {
+                InsertAt = i + 1;
+                break;
+            }
+        }
+    }
+
+    while (NewIdx > InsertAt)
+    {
+        std::swap(Macros[NewIdx], Macros[NewIdx - 1]);
+        NewIdx--;
+    }
+
+    MacroManager::Get().RebindAll();
+
+    SelectedMacroId = NewId;
+    EditActionIdx = -1;
+    ClearActionSelection();
+
+    StatusMessage = "Pasted macro \"" + MacroClipboard.Name + "\".";
+    StatusTimer = 2.5f;
+}
+
+void Gui::HandleMacroListShortcuts()
+{
+    if (CapturingKey || CapturingRecordKey || CapturingActionKey)
+        return;
+
+    ImGuiIO& io = ImGui::GetIO();
+
+    if (io.WantTextInput)
+        return;
+
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_C, ImGuiInputFlags_RouteFocused))
+        CopySelectedMacro();
+
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_X, ImGuiInputFlags_RouteFocused))
+    {
+        CopySelectedMacro();
+
+        if (!SelectedMacroId.empty())
+            ConfirmDeleteMacroId = SelectedMacroId;
+    }
+
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_V, ImGuiInputFlags_RouteFocused))
+        PasteMacro();
+
+    if (ImGui::Shortcut(ImGuiKey_Delete, ImGuiInputFlags_RouteFocused) || ImGui::Shortcut(ImGuiKey_Backspace, ImGuiInputFlags_RouteFocused))
+    {
+        if (!SelectedMacroId.empty())
+            ConfirmDeleteMacroId = SelectedMacroId;
+    }
 }
 
 void Gui::DrawMacroEditor(const std::string& MacroId)

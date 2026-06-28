@@ -56,6 +56,10 @@ private:
     void ClearActionSelection();
     bool IsActionSelected(int idx) const;
 
+    void HandleMacroListShortcuts();
+    void CopySelectedMacro();
+    void PasteMacro();
+
     HWND Window = nullptr;
     ID3D11Device* Device = nullptr;
     ID3D11DeviceContext* Context = nullptr;
@@ -112,11 +116,19 @@ private:
     float DragOffsetY = 0.0f;
     bool DragMoved = false;
 
+    int MacroDragIdx = -1;
+    float MacroDragStartY = 0.0f;
+    float MacroDragOffsetY = 0.0f;
+    bool MacroDragMoved = false;
+
     std::set<int> SelectedActionIndices;
     int ActionSelectionAnchor = -1;
     std::string SelectedActionsMacroId;
     
     std::vector<MacroAction> ActionClipboard;
+
+    Macro MacroClipboard;
+    bool MacroClipboardValid = false;
 
     bool MarqueeActive = false;
     float MarqueeStartX = 0.0f;
