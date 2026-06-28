@@ -18,9 +18,8 @@ inline const std::vector<ChangelogVersion>& GetChangelog()
         {
             APP_VERSION_STRING,
             {
-                "Added foundational keyboard shortcuts support (CTRL + C, CTRL + V, Backspace).",
-                "Click one action, hold \"LEFT SHIFT\" and click another to select a list of actions.",
-                "Added a \"Confirm Clear\" popup when deleting an action.",
+                "Fixed an issue where recording would cause mouse movement to lag.",
+                "If \"Lock Input to App\" is enabled on the selected macro, recording will be blocked unless capturing input from that app.",
             }
         },
     };

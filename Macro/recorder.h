@@ -1,4 +1,5 @@
 #pragma once
+
 #include <windows.h>
 #include <vector>
 #include <atomic>
@@ -20,7 +21,6 @@ struct RecorderOptions
     bool MacroToggleChime = true;
 };
 
-
 class Recorder
 {
 public:
@@ -37,14 +37,21 @@ public:
 
 private:
     Recorder() = default;
+    ~Recorder() { StopHookThread(); }
 
     static LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam);
+
+    static DWORD WINAPI HookThreadProc(LPVOID lpParam);
+    void StopHookThread();
 
     void PushDelay();
 
     HHOOK KeyboardHook = nullptr;
     HHOOK MouseHook = nullptr;
+
+    HANDLE HookThread = nullptr;
+    DWORD  HookThreadId = 0;
 
     std::atomic<bool> Recording{ false };
     RecorderOptions Options;

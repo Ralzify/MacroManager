@@ -29,6 +29,8 @@ public:
     static bool ShouldStop();
     static void ClearStop();
 
+    static bool ForegroundMatchesLockedApp(const std::string& LockedApp);
+
 private:
     MacroManager() = default;
     static std::string GenerateId();

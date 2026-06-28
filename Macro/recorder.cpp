@@ -1,4 +1,5 @@
 #include "recorder.h"
+
 #include <algorithm>
 
 Recorder& Recorder::Get()
@@ -9,17 +10,7 @@ Recorder& Recorder::Get()
 
 void Recorder::Start(const RecorderOptions& Option)
 {
-    if (KeyboardHook) 
-    { 
-        UnhookWindowsHookEx(KeyboardHook); 
-        KeyboardHook = nullptr;
-    }
-
-    if (MouseHook) 
-    { 
-        UnhookWindowsHookEx(MouseHook);
-        MouseHook = nullptr;
-    }
+    StopHookThread();
 
     {
         std::lock_guard<std::mutex> Lock(Mutex);
@@ -32,21 +23,68 @@ void Recorder::Start(const RecorderOptions& Option)
 
     Recording = true;
 
-    KeyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, KeyboardProc, GetModuleHandleW(nullptr), 0);
+    HookThread = CreateThread(nullptr, 0, HookThreadProc, this, 0, &HookThreadId);
 
-    if (Options.RecordMouseMove || Options.RecordMouseClick)
-        MouseHook = SetWindowsHookExW(WH_MOUSE_LL, MouseProc, GetModuleHandleW(nullptr), 0);
+    for (int i = 0; i < 200 && HookThread; ++i)
+    {
+        if (KeyboardHook)
+            break;
+
+        Sleep(5);
+    }
 }
 
 std::vector<MacroAction> Recorder::Stop()
 {
     Recording = false;
 
-    if (KeyboardHook) { UnhookWindowsHookEx(KeyboardHook);    KeyboardHook = nullptr; }
-    if (MouseHook) { UnhookWindowsHookEx(MouseHook); MouseHook = nullptr; }
+    StopHookThread();
 
     std::lock_guard<std::mutex> Lock(Mutex);
     return std::move(Actions);
+}
+
+void Recorder::StopHookThread()
+{
+    if (HookThread)
+    {
+        PostThreadMessageW(HookThreadId, WM_QUIT, 0, 0);
+        WaitForSingleObject(HookThread, 3000);
+        CloseHandle(HookThread);
+        HookThread = nullptr;
+        HookThreadId = 0;
+    }
+
+    KeyboardHook = nullptr;
+    MouseHook = nullptr;
+}
+
+DWORD WINAPI Recorder::HookThreadProc(LPVOID lpParam)
+{
+    Recorder* Self = static_cast<Recorder*>(lpParam);
+
+    Self->KeyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, KeyboardProc, GetModuleHandleW(nullptr), 0);
+
+    bool WantMouse = false;
+    {
+        std::lock_guard<std::mutex> Lock(Self->Mutex);
+        WantMouse = Self->Options.RecordMouseMove || Self->Options.RecordMouseClick;
+    }
+
+    if (WantMouse)
+        Self->MouseHook = SetWindowsHookExW(WH_MOUSE_LL, MouseProc, GetModuleHandleW(nullptr), 0);
+
+    MSG msg = {};
+    while (GetMessageW(&msg, nullptr, 0, 0) > 0)
+    {
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+
+    if (Self->KeyboardHook) { UnhookWindowsHookEx(Self->KeyboardHook); Self->KeyboardHook = nullptr; }
+    if (Self->MouseHook) { UnhookWindowsHookEx(Self->MouseHook);    Self->MouseHook = nullptr; }
+
+    return 0;
 }
 
 void Recorder::PushDelay()
@@ -61,7 +99,6 @@ void Recorder::PushDelay()
     if (Actions.empty())
         return;
 
-    // Merge consecutive delays into a single larger delay.
     if (Actions.back().Type == ActionType::Delay)
     {
         Actions.back().MsDelay += Elapsed;
@@ -76,7 +113,7 @@ void Recorder::PushDelay()
 
 bool Recorder::OnKey(int vk, bool IsDown)
 {
-    if (!Recording) 
+    if (!Recording)
         return false;
 
     if (Options.ToggleKey != 0 && vk == Options.ToggleKey) return false;
@@ -120,7 +157,7 @@ bool Recorder::OnKey(int vk, bool IsDown)
 
 bool Recorder::OnMouse(UINT Message, int x, int y, int WheelDelta)
 {
-    if (!Recording) 
+    if (!Recording)
         return false;
 
     std::lock_guard<std::mutex> Lock(Mutex);
@@ -130,7 +167,7 @@ bool Recorder::OnMouse(UINT Message, int x, int y, int WheelDelta)
         auto Now = Clock::now();
         int Elapsed = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastMouseSample).count());
 
-        if (Elapsed < Options.MouseMoveInterval) 
+        if (Elapsed < Options.MouseMoveInterval)
             return false;
 
         LastMouseSample = Now;
@@ -154,7 +191,7 @@ bool Recorder::OnMouse(UINT Message, int x, int y, int WheelDelta)
         return false;
     }
 
-    if (!Options.RecordMouseClick) 
+    if (!Options.RecordMouseClick)
         return false;
 
     MouseButton Button = MouseButton::Left;

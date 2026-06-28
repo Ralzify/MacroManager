@@ -11,7 +11,7 @@
 
 static std::atomic<bool> bStopAll{ false };
 
-static bool ForegroundMatchesLockedApp(const std::string& LockedApp)
+bool MacroManager::ForegroundMatchesLockedApp(const std::string& LockedApp)
 {
     HWND FgWnd = GetForegroundWindow();
 

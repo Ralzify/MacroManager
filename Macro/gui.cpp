@@ -134,10 +134,15 @@ void Gui::Run()
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
- 
+
+        LARGE_INTEGER Now;
+        QueryPerformanceCounter(&Now);
+        double DeltaSeconds = double(Now.QuadPart - LastFrame.QuadPart) / double(Freq.QuadPart);
+        LastFrame = Now;
+
         if (msg.message == WM_QUIT)
             break;
- 
+
         if (CapturingKey)
         {
             for (int vk = 8; vk < 256; ++vk)
@@ -146,25 +151,35 @@ void Gui::Run()
                 {
                     if (auto* Macro = MacroManager::Get().FindMacro(CapturingMacroId))
                         Macro->TriggerKey = vk; MacroManager::Get().RebindAll();
- 
+
                     CapturingKey = false; break;
                 }
             }
         }
- 
+
         if (!CapturingKey && !CapturingRecordKey && !RecordOptionsOpen && RecordOptions.ToggleKey != 0 && !SelectedMacroId.empty())
         {
             static bool WasDown = false;
             bool IsDown = (GetAsyncKeyState(RecordOptions.ToggleKey) & 0x8000) != 0;
- 
+
             if (IsDown && !WasDown)
             {
-                if (!Recorder::Get().IsRecording())
+                auto* SelMacro = MacroManager::Get().FindMacro(SelectedMacroId);
+
+                bool LockedElsewhere = SelMacro && SelMacro->LockInputToApp &&
+                    (SelMacro->LockedAppName.empty() || !MacroManager::ForegroundMatchesLockedApp(SelMacro->LockedAppName));
+
+                if (LockedElsewhere)
+                {
+                    StatusMessage = "Record hotkey ignored - \"" + SelMacro->Name + "\" is locked to " + SelMacro->LockedAppName;
+                    StatusTimer = 3.0f;
+                }
+                else if (!Recorder::Get().IsRecording())
                     Recorder::Get().Start(RecordOptions);
                 else
                 {
                     auto Rec = Recorder::Get().Stop();
- 
+
                     if (!Rec.empty())
                     {
                         if (auto* Macro = MacroManager::Get().FindMacro(SelectedMacroId))
@@ -174,13 +189,13 @@ void Gui::Run()
                             StatusTimer = 4.0f;
                         }
                     }
-                    else 
+                    else
                     {
-                        StatusMessage = "Recording stopped — no actions captured."; StatusTimer = 3.0f; 
+                        StatusMessage = "Recording stopped — no actions captured."; StatusTimer = 3.0f;
                     }
                 }
             }
- 
+
             WasDown = IsDown;
         }
         else
@@ -213,8 +228,8 @@ void Gui::Run()
             MacroToggleWasDown = (GetAsyncKeyState(RecordOptions.MacroToggleKey) & 0x8000) != 0;
         }
 
-        if (StatusTimer > 0.0f) 
-            StatusTimer -= 1.0f / 60.0f;
+        if (StatusTimer > 0.0f)
+            StatusTimer -= static_cast<float>(DeltaSeconds);
 
         RenderFrame();
     }
