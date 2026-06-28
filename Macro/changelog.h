@@ -18,11 +18,9 @@ inline const std::vector<ChangelogVersion>& GetChangelog()
         {
             APP_VERSION_STRING,
             {
-                "Fixed importing deleting all existing macros (was still using old pre-release import logic).",
-                "Fixed key presses being capped to a background application's frame rate.",
-                "Fixed the \"Toggle Macro\" hotkey occasionally resetting itself.",
-                "Added \"Lock Input to Tab\" - Only allows a macro to run if the specified application is focused.",
-                "Added a \"Start All\" button to enable every macro at once.",
+                "Added foundational keyboard shortcuts support (CTRL + C, CTRL + V, Backspace).",
+                "Click one action, hold \"LEFT SHIFT\" and click another to select a list of actions.",
+                "Added a \"Confirm Clear\" popup when deleting an action.",
             }
         },
     };

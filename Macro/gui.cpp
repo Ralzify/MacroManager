@@ -897,6 +897,8 @@ void Gui::RenderFrame()
                 Macro->Actions.clear();
 
             EditActionIdx = -1;
+            ClearActionSelection();
+            DragIdx = -1;
             ImGui::CloseCurrentPopup();
         }
 
@@ -905,6 +907,51 @@ void Gui::RenderFrame()
         if (ImGui::Button("Cancel", { 110,0 })) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
+
+    if (!ConfirmDeleteMacroId.empty() && !ImGui::IsPopupOpen("Confirm Delete Macro"))
+        ImGui::OpenPopup("Confirm Delete Macro");
+
+    if (ImGui::BeginPopupModal("Confirm Delete Macro", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        if (auto* Macro = MacroManager::Get().FindMacro(ConfirmDeleteMacroId))
+            ImGui::Text("Delete macro \"%s\"?", Macro->Name.c_str());
+        else
+            ImGui::Text("Delete this macro?");
+
+        ImGui::Text("This cannot be undone.");
+        ImGui::Spacing();
+        ImGui::PushStyleColor(ImGuiCol_Button, { 0.55f,0.15f,0.15f,1 });
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, { 0.75f,0.20f,0.20f,1 });
+
+        if (ImGui::Button("Delete", { 110,0 }))
+        {
+            MacroManager::Get().RemoveMacro(ConfirmDeleteMacroId);
+
+            if (SelectedMacroId == ConfirmDeleteMacroId)
+            {
+                SelectedMacroId.clear();
+                EditActionIdx = -1;
+                ClearActionSelection();
+                DragIdx = -1;
+            }
+
+            ConfirmDeleteMacroId.clear();
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::PopStyleColor(2);
+        ImGui::SameLine();
+
+        if (ImGui::Button("Cancel", { 110,0 }))
+        {
+            ConfirmDeleteMacroId.clear();
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+    else if (!ConfirmDeleteMacroId.empty())
+        ConfirmDeleteMacroId.clear();
 
     ImGui::Render();
     const float clr[4] = { 0.08f,0.08f,0.10f,1.0f };
@@ -1259,9 +1306,37 @@ void Gui::DrawChangelogDialog()
         ImGui::Separator();
         ImGui::Spacing();
 
-        ImGui::BeginChild("##changelog", { 460, 260 }, true);
-
         const auto& Versions = GetChangelog();
+
+        const float LineH = ImGui::GetTextLineHeightWithSpacing();
+        const float HeaderH = ImGui::GetTextLineHeight() + ImGui::GetStyle().ItemSpacing.y;
+        const float SeparatorBlockH = ImGui::GetTextLineHeight() * 0.5f + ImGui::GetStyle().ItemSpacing.y * 2.0f;
+        const float WrapWidth = 460.0f - ImGui::GetStyle().WindowPadding.x * 2.0f - 16.0f;
+
+        float ContentH = 0.0f;
+
+        for (size_t i = 0; i < Versions.size(); ++i)
+        {
+            const ChangelogVersion& Entry = Versions[i];
+            ContentH += HeaderH;
+
+            for (const std::string& Change : Entry.Changes)
+            {
+                ImVec2 TextSize = ImGui::CalcTextSize(Change.c_str(), nullptr, false, WrapWidth);
+                ContentH += TextSize.y + ImGui::GetStyle().ItemSpacing.y;
+            }
+
+            if (i + 1 < Versions.size())
+                ContentH += SeparatorBlockH;
+        }
+
+        ContentH += ImGui::GetStyle().WindowPadding.y * 2.0f;
+
+        const float MinH = LineH * 3.0f;
+        const float MaxH = 320.0f;
+        const float ChildH = (ContentH < MinH) ? MinH : (ContentH > MaxH ? MaxH : ContentH);
+
+        ImGui::BeginChild("##changelog", { 460, ChildH }, true);
 
         for (size_t i = 0; i < Versions.size(); ++i)
         {
@@ -1361,6 +1436,176 @@ void Gui::DrawMacroList()
     }
 }
 
+bool Gui::IsActionSelected(int idx) const
+{
+    return SelectedActionIndices.find(idx) != SelectedActionIndices.end();
+}
+
+void Gui::ClearActionSelection()
+{
+    SelectedActionIndices.clear();
+    ActionSelectionAnchor = -1;
+}
+
+void Gui::HandleActionSelectionClick(int idx, int actionCount)
+{
+    ImGuiIO& io = ImGui::GetIO();
+
+    if (SelectedActionsMacroId != SelectedMacroId)
+    {
+        SelectedActionIndices.clear();
+        ActionSelectionAnchor = -1;
+        SelectedActionsMacroId = SelectedMacroId;
+    }
+
+    if (io.KeyShift && ActionSelectionAnchor >= 0)
+    {
+        int lo = (ActionSelectionAnchor < idx) ? ActionSelectionAnchor : idx;
+        int hi = (ActionSelectionAnchor < idx) ? idx : ActionSelectionAnchor;
+
+        if (!io.KeyCtrl)
+            SelectedActionIndices.clear();
+
+        for (int i = lo; i <= hi; ++i)
+            SelectedActionIndices.insert(i);
+    }
+    else if (io.KeyCtrl)
+    {
+        if (IsActionSelected(idx))
+            SelectedActionIndices.erase(idx);
+        else
+            SelectedActionIndices.insert(idx);
+
+        ActionSelectionAnchor = idx;
+    }
+    else
+    {
+        if (!IsActionSelected(idx) || SelectedActionIndices.size() <= 1)
+        {
+            SelectedActionIndices.clear();
+            SelectedActionIndices.insert(idx);
+        }
+
+        ActionSelectionAnchor = idx;
+    }
+
+    (void)actionCount;
+}
+
+void Gui::CopySelectedActions(const Macro& MacroRef)
+{
+    if (SelectedActionIndices.empty())
+        return;
+
+    ActionClipboard.clear();
+
+    for (int idx : SelectedActionIndices)
+    {
+        if (idx >= 0 && idx < (int)MacroRef.Actions.size())
+            ActionClipboard.push_back(MacroRef.Actions[idx]);
+    }
+
+    if (!ActionClipboard.empty())
+    {
+        StatusMessage = "Copied " + std::to_string(ActionClipboard.size()) + " action(s).";
+        StatusTimer = 2.5f;
+    }
+}
+
+void Gui::PasteClipboardActions(Macro& MacroRef)
+{
+    if (ActionClipboard.empty())
+        return;
+
+    int InsertAt = SelectedActionIndices.empty() ? (int)MacroRef.Actions.size() : (*SelectedActionIndices.rbegin() + 1);
+
+    InsertAt = (InsertAt < 0) ? 0 : (InsertAt > (int)MacroRef.Actions.size() ? (int)MacroRef.Actions.size() : InsertAt);
+
+    MacroRef.Actions.insert(MacroRef.Actions.begin() + InsertAt, ActionClipboard.begin(), ActionClipboard.end());
+
+    SelectedActionIndices.clear();
+
+    for (int i = 0; i < (int)ActionClipboard.size(); ++i)
+        SelectedActionIndices.insert(InsertAt + i);
+
+    ActionSelectionAnchor = InsertAt;
+    EditActionIdx = -1;
+
+    StatusMessage = "Pasted " + std::to_string(ActionClipboard.size()) + " action(s).";
+    StatusTimer = 2.5f;
+}
+
+void Gui::DeleteSelectedActions(Macro& MacroRef)
+{
+    if (SelectedActionIndices.empty())
+        return;
+
+    size_t DeletedCount = 0;
+
+    for (auto it = SelectedActionIndices.rbegin(); it != SelectedActionIndices.rend(); ++it)
+    {
+        int idx = *it;
+
+        if (idx >= 0 && idx < (int)MacroRef.Actions.size())
+        {
+            MacroRef.Actions.erase(MacroRef.Actions.begin() + idx);
+            ++DeletedCount;
+        }
+    }
+
+    if (DeletedCount > 0)
+    {
+        StatusMessage = "Deleted " + std::to_string(DeletedCount) + " action(s).";
+        StatusTimer = 2.5f;
+    }
+
+    ClearActionSelection();
+    EditActionIdx = -1;
+    DragIdx = -1;
+}
+
+void Gui::HandleActionListShortcuts(Macro& MacroRef)
+{
+    if (CapturingKey || CapturingRecordKey || CapturingActionKey)
+        return;
+
+    ImGuiIO& io = ImGui::GetIO();
+
+    if (io.WantTextInput)
+        return;
+
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_C, ImGuiInputFlags_RouteFocused))
+        CopySelectedActions(MacroRef);
+
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_X, ImGuiInputFlags_RouteFocused))
+    {
+        CopySelectedActions(MacroRef);
+        DeleteSelectedActions(MacroRef);
+    }
+
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_V, ImGuiInputFlags_RouteFocused))
+        PasteClipboardActions(MacroRef);
+
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_A, ImGuiInputFlags_RouteFocused))
+    {
+        SelectedActionIndices.clear();
+
+        for (int i = 0; i < (int)MacroRef.Actions.size(); ++i)
+            SelectedActionIndices.insert(i);
+
+        SelectedActionsMacroId = SelectedMacroId;
+        ActionSelectionAnchor = (int)MacroRef.Actions.size() - 1;
+    }
+
+    if (ImGui::Shortcut(ImGuiKey_Delete, ImGuiInputFlags_RouteFocused) || ImGui::Shortcut(ImGuiKey_Backspace, ImGuiInputFlags_RouteFocused))
+    {
+        DeleteSelectedActions(MacroRef);
+    }
+
+    if (ImGui::Shortcut(ImGuiKey_Escape, ImGuiInputFlags_RouteFocused))
+        ClearActionSelection();
+}
+
 void Gui::DrawMacroEditor(const std::string& MacroId)
 {
     Macro* Macro = MacroManager::Get().FindMacro(MacroId);
@@ -1452,9 +1697,7 @@ void Gui::DrawMacroEditor(const std::string& MacroId)
 
     if (ImGui::Button("Delete Macro", { 110,0 }))
     {
-        MacroManager::Get().RemoveMacro(MacroId);
-        SelectedMacroId.clear();
-        ImGui::PopStyleColor(2); return;
+        ConfirmDeleteMacroId = MacroId;
     }
 
     ImGui::PopStyleColor(2);
@@ -1549,9 +1792,55 @@ void Gui::DrawMacroEditor(const std::string& MacroId)
         ImGui::PopStyleColor(2);
     }
 
+    const bool HasSelection = (SelectedActionsMacroId == MacroId) && !SelectedActionIndices.empty();
+
+    if (HasSelection)
+    {
+        ImGui::SameLine(0, 16);
+        ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+        ImGui::SameLine(0, 16);
+
+        ImGui::Text("%zu selected", SelectedActionIndices.size());
+        ImGui::SameLine();
+
+        if (ImGui::SmallButton("Copy"))
+            CopySelectedActions(*Macro);
+
+        ImGui::SameLine();
+
+        if (ImGui::SmallButton("Cut"))
+        {
+            CopySelectedActions(*Macro);
+            DeleteSelectedActions(*Macro);
+        }
+
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Button, { 0.55f,0.15f,0.15f,1 });
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, { 0.75f,0.20f,0.20f,1 });
+
+        if (ImGui::SmallButton("Delete"))
+            DeleteSelectedActions(*Macro);
+
+        ImGui::PopStyleColor(2);
+    }
+
+    if (!ActionClipboard.empty())
+    {
+        ImGui::SameLine(0, 16);
+
+        if (ImGui::SmallButton("Paste"))
+            PasteClipboardActions(*Macro);
+    }
+
+    //ImGui::Spacing();
+    //ImGui::TextDisabled("Click to select, Ctrl/Shift+click for multiple, drag empty space to box-select.");
+    //ImGui::TextDisabled("Ctrl+C copy, Ctrl+X cut, Ctrl+V paste, Del/Backspace delete, Ctrl+A select all.");
+
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
+
+    HandleActionListShortcuts(*Macro);
 
     const float ROW_HEIGHT = ImGui::GetTextLineHeight() + 2.0f;
     const float ROW_STRIDE = ImGui::GetTextLineHeightWithSpacing();
@@ -1563,6 +1852,8 @@ void Gui::DrawMacroEditor(const std::string& MacroId)
     std::string DragFloatLabel;
     float DragFloatX = 0.0f, DragFloatW = 0.0f;
     float ListTopY = 0.0f, ListBottomY = 0.0f;
+    float ListLeftX = 0.0f, ListRightX = 0.0f;
+    bool AnyRowHoveredThisFrame = false;
 
     for (int i = 0; i < (int)Macro->Actions.size(); ++i)
     {
@@ -1636,16 +1927,27 @@ void Gui::DrawMacroEditor(const std::string& MacroId)
         ImVec2 rowMax = { rowMin.x + BtnOffset - 8.0f, rowMin.y + ROW_HEIGHT };
 
         if (i == 0)
+        {
             ListTopY = rowMin.y;
+            ListLeftX = rowMin.x;
+        }
 
         ListBottomY = rowMin.y;
+        ListRightX = rowMax.x;
 
         bool Hovered = ImGui::IsMouseHoveringRect(rowMin, rowMax) && ImGui::IsWindowHovered();
         bool IsDragging = (DragIdx == i);
+        bool IsSelected = (SelectedActionsMacroId == MacroId) && IsActionSelected(i);
 
         float RowHovAnim = AnimTo(ImGui::GetID("rowhov"), (Hovered && !IsDragging) ? 1.0f : 0.0f, 16.0f);
 
         ImDrawList* RowDraw = ImGui::GetWindowDrawList();
+
+        if (IsSelected && !IsDragging)
+        {
+            RowDraw->AddRectFilled(rowMin, rowMax, ImGui::GetColorU32(ImVec4(0.32f, 0.50f, 0.95f, 0.30f)), 4.0f);
+            RowDraw->AddRect(rowMin, rowMax, ImGui::GetColorU32(ImVec4(0.45f, 0.65f, 1.0f, 0.65f)), 4.0f, 0, 1.0f);
+        }
 
         if (IsDragging)
             RowDraw->AddRect(rowMin, rowMax, IM_COL32(90, 150, 255, 130), 4.0f, 0, 1.5f);
@@ -1675,11 +1977,21 @@ void Gui::DrawMacroEditor(const std::string& MacroId)
             ShowActionEditor = true;
         }
 
+        if (Hovered)
+            AnyRowHoveredThisFrame = true;
+
         if (Hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
         {
-            DragIdx = i;
-            DragStartY = ImGui::GetIO().MousePos.y;
-            DragOffsetY = ImGui::GetIO().MousePos.y - rowMin.y;
+            ImGuiIO& RowIo = ImGui::GetIO();
+            HandleActionSelectionClick(i, (int)Macro->Actions.size());
+
+            if (!RowIo.KeyCtrl && !RowIo.KeyShift)
+            {
+                DragIdx = i;
+                DragStartY = ImGui::GetIO().MousePos.y;
+                DragOffsetY = ImGui::GetIO().MousePos.y - rowMin.y;
+                DragMoved = false;
+            }
         }
 
         ImGui::SameLine(BtnOffset);
@@ -1710,6 +2022,17 @@ void Gui::DrawMacroEditor(const std::string& MacroId)
 
             else if (EditActionIdx == i - 1)
                 EditActionIdx = i;
+
+            if (SelectedActionsMacroId == MacroId)
+            {
+                bool HadI = IsActionSelected(i), HadIm1 = IsActionSelected(i - 1);
+
+                if (HadI != HadIm1)
+                {
+                    if (HadI) { SelectedActionIndices.erase(i); SelectedActionIndices.insert(i - 1); }
+                    else { SelectedActionIndices.erase(i - 1); SelectedActionIndices.insert(i); }
+                }
+            }
         }
 
         if (DoDown)
@@ -1720,6 +2043,17 @@ void Gui::DrawMacroEditor(const std::string& MacroId)
 
             else if (EditActionIdx == i + 1)
                 EditActionIdx = i;
+
+            if (SelectedActionsMacroId == MacroId)
+            {
+                bool HadI = IsActionSelected(i), HadIp1 = IsActionSelected(i + 1);
+
+                if (HadI != HadIp1)
+                {
+                    if (HadI) { SelectedActionIndices.erase(i); SelectedActionIndices.insert(i + 1); }
+                    else { SelectedActionIndices.erase(i + 1); SelectedActionIndices.insert(i); }
+                }
+            }
         }
 
         if (DoEdit) 
@@ -1743,8 +2077,22 @@ void Gui::DrawMacroEditor(const std::string& MacroId)
 
             else if (DragIdx > i)
                 DragIdx--;
+
+            if (SelectedActionsMacroId == MacroId)
+            {
+                std::set<int> Shifted;
+
+                for (int sel : SelectedActionIndices)
+                {
+                    if (sel == i) continue;
+                    Shifted.insert(sel > i ? sel - 1 : sel);
+                }
+
+                SelectedActionIndices = std::move(Shifted);
+            }
             
-            ImGui::PopID(); break;
+            ImGui::PopID();
+            break;
         }
 
         ImGui::PopID();
@@ -1773,7 +2121,14 @@ void Gui::DrawMacroEditor(const std::string& MacroId)
                     else if (EditActionIdx == DragIdx + 1) 
                         EditActionIdx = DragIdx;
 
+                    if (SelectedActionsMacroId == MacroId && IsActionSelected(DragIdx))
+                    {
+                        SelectedActionIndices.erase(DragIdx);
+                        SelectedActionIndices.insert(DragIdx + 1);
+                    }
+
                     DragIdx++;
+                    DragMoved = true;
                 }
 
                 while (DragIdx > target)
@@ -1786,7 +2141,14 @@ void Gui::DrawMacroEditor(const std::string& MacroId)
                     else if (EditActionIdx == DragIdx - 1) 
                         EditActionIdx = DragIdx;
 
+                    if (SelectedActionsMacroId == MacroId && IsActionSelected(DragIdx))
+                    {
+                        SelectedActionIndices.erase(DragIdx);
+                        SelectedActionIndices.insert(DragIdx - 1);
+                    }
+
                     DragIdx--;
+                    DragMoved = true;
                 }
 
                 DragStartY = MouseY;
@@ -1795,6 +2157,7 @@ void Gui::DrawMacroEditor(const std::string& MacroId)
         else
         {
             DragIdx = -1;
+            DragMoved = false;
         }
     }
 
@@ -1810,6 +2173,59 @@ void Gui::DrawMacroEditor(const std::string& MacroId)
         dl->AddRectFilled(fMin, fMax, IM_COL32(38, 66, 130, 235), 5.0f);
         dl->AddRect(fMin, fMax, IM_COL32(90, 150, 255, 255), 5.0f, 0, 1.5f);
         dl->AddText({ DragFloatX, FloatY }, IM_COL32(225, 238, 255, 255), DragFloatLabel.c_str());
+    }
+
+    if (DragIdx < 0 && !Macro->Actions.empty())
+    {
+        ImVec2 ListMin = { ListLeftX, ListTopY };
+        ImVec2 ListMax = { ListRightX, ListBottomY + ROW_HEIGHT };
+        bool MouseOverList = ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(ListMin, ListMax, false);
+
+        if (!MarqueeActive && MouseOverList && !AnyRowHoveredThisFrame && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        {
+            MarqueeActive = true;
+            MarqueeStartX = ImGui::GetIO().MousePos.x;
+            MarqueeStartY = ImGui::GetIO().MousePos.y;
+            MarqueeAdditive = ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift;
+            MarqueeBaseSelection = (SelectedActionsMacroId == MacroId) ? SelectedActionIndices : std::set<int>{};
+        }
+
+        if (MarqueeActive)
+        {
+            if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+            {
+                ImVec2 CurPos = ImGui::GetIO().MousePos;
+                ImVec2 SelMin = { (std::min)(MarqueeStartX, CurPos.x), (std::min)(MarqueeStartY, CurPos.y) };
+                ImVec2 SelMax = { (std::max)(MarqueeStartX, CurPos.x), (std::max)(MarqueeStartY, CurPos.y) };
+
+                std::set<int> NewSelection = MarqueeAdditive ? MarqueeBaseSelection : std::set<int>{};
+
+                for (int i = 0; i < (int)Macro->Actions.size(); ++i)
+                {
+                    float rowY = ListTopY + i * ROW_STRIDE;
+                    float rowBottom = rowY + ROW_HEIGHT;
+
+                    bool Overlaps = (rowBottom >= SelMin.y) && (rowY <= SelMax.y) && (ListLeftX <= SelMax.x) && (ListRightX >= SelMin.x);
+
+                    if (Overlaps)
+                        NewSelection.insert(i);
+                }
+
+                SelectedActionIndices = NewSelection;
+                SelectedActionsMacroId = MacroId;
+
+                if (!NewSelection.empty())
+                    ActionSelectionAnchor = *NewSelection.rbegin();
+
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                dl->AddRectFilled(SelMin, SelMax, IM_COL32(80, 140, 255, 40), 2.0f);
+                dl->AddRect(SelMin, SelMax, IM_COL32(110, 165, 255, 200), 2.0f, 0, 1.0f);
+            }
+            else
+            {
+                MarqueeActive = false;
+            }
+        }
     }
 
     ImGui::EndChild();

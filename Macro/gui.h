@@ -1,10 +1,14 @@
 ﻿#pragma once
+
+#include "recorder.h"
+#include "version.h"
+
 #include <windows.h>
 #include <shlobj.h>
 #include <d3d11.h>
 #include <string>
-#include "recorder.h"
-#include "version.h"
+#include <set>
+#include <vector>
 
 class Gui
 {
@@ -43,6 +47,14 @@ private:
     void RefreshLockedAppListFor(const std::string& macroId);
 
     bool LoadIconTexture();
+
+    void HandleActionSelectionClick(int idx, int actionCount);
+    void HandleActionListShortcuts(Macro & macroRef);
+    void CopySelectedActions(const Macro & macroRef);
+    void PasteClipboardActions(Macro & macroRef);
+    void DeleteSelectedActions(Macro & macroRef);
+    void ClearActionSelection();
+    bool IsActionSelected(int idx) const;
 
     HWND Window = nullptr;
     ID3D11Device* Device = nullptr;
@@ -84,6 +96,7 @@ private:
     bool RecordOptionsOpen = false;
     bool CapturingRecordKey = false;
     bool ConfirmClearActions = false;
+    std::string ConfirmDeleteMacroId;
 
     bool LockInputToTab = false;
     std::vector<std::pair<std::string, std::string>> LockedAppList;
@@ -97,6 +110,19 @@ private:
     int DragIdx = -1;
     float DragStartY = 0.0f;
     float DragOffsetY = 0.0f;
+    bool DragMoved = false;
+
+    std::set<int> SelectedActionIndices;
+    int ActionSelectionAnchor = -1;
+    std::string SelectedActionsMacroId;
+    
+    std::vector<MacroAction> ActionClipboard;
+
+    bool MarqueeActive = false;
+    float MarqueeStartX = 0.0f;
+    float MarqueeStartY = 0.0f;
+    std::set<int> MarqueeBaseSelection;
+    bool MarqueeAdditive = false;
 };
 
 inline const unsigned char AppIconPng[] = {
