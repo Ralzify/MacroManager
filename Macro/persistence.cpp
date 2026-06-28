@@ -1,4 +1,5 @@
 #include "persistence.h"
+#include "recorder.h"
 #include "json.hpp"
 #include <fstream>
 #include <sstream>
@@ -7,6 +8,7 @@
 #include <string>
 #include <windows.h>
 #include <shlobj.h>
+
 using json = nlohmann::json;
 
 static json ActionToJson(const MacroAction& Action)
@@ -44,6 +46,8 @@ static json MacroToJson(const Macro& Macro)
     JSON["enabled"] = Macro.Enabled;
     JSON["repeat"] = Macro.Repeat;
     JSON["repeatCount"] = Macro.RepeatCount;
+    JSON["lockInputToApp"] = Macro.LockInputToApp;
+    JSON["lockedAppName"] = Macro.LockedAppName;
     json Actions = json::array();
 
     for (const auto& a : Macro.Actions)
@@ -62,6 +66,8 @@ static Macro MacroFromJson(const json& JSON)
     Macro.Enabled = JSON.value("enabled", true);
     Macro.Repeat = JSON.value("repeat", false);
     Macro.RepeatCount = JSON.value("repeatCount", 1);
+    Macro.LockInputToApp = JSON.value("lockInputToApp", false);
+    Macro.LockedAppName = JSON.value("lockedAppName", "");
 
     if (JSON.contains("actions") && JSON["actions"].is_array())
     {
@@ -70,6 +76,34 @@ static Macro MacroFromJson(const json& JSON)
     }
 
     return Macro;
+}
+
+static json RecorderOptionsToJson(const RecorderOptions& Options)
+{
+    json JSON;
+    JSON["recordKeyPress"] = Options.RecordKeyPress;
+    JSON["recordMouseMove"] = Options.RecordMouseMove;
+    JSON["recordMouseClick"] = Options.RecordMouseClick;
+    JSON["recordDelays"] = Options.RecordDelays;
+    JSON["minMsDelay"] = Options.MinMsDelay;
+    JSON["mouseMoveInterval"] = Options.MouseMoveInterval;
+    JSON["toggleKey"] = Options.ToggleKey;
+    JSON["macroToggleKey"] = Options.MacroToggleKey;
+    JSON["macroToggleChime"] = Options.MacroToggleChime;
+    return JSON;
+}
+
+static void RecorderOptionsFromJson(const json& JSON, RecorderOptions& Options)
+{
+    Options.RecordKeyPress = JSON.value("recordKeyPress", Options.RecordKeyPress);
+    Options.RecordMouseMove = JSON.value("recordMouseMove", Options.RecordMouseMove);
+    Options.RecordMouseClick = JSON.value("recordMouseClick", Options.RecordMouseClick);
+    Options.RecordDelays = JSON.value("recordDelays", Options.RecordDelays);
+    Options.MinMsDelay = JSON.value("minMsDelay", Options.MinMsDelay);
+    Options.MouseMoveInterval = JSON.value("mouseMoveInterval", Options.MouseMoveInterval);
+    Options.ToggleKey = JSON.value("toggleKey", Options.ToggleKey);
+    Options.MacroToggleKey = JSON.value("macroToggleKey", Options.MacroToggleKey);
+    Options.MacroToggleChime = JSON.value("macroToggleChime", Options.MacroToggleChime);
 }
 
 bool Persistence::Save(const std::vector<Macro>& Macros, const std::string& FilePath)
@@ -181,6 +215,63 @@ int Persistence::Append(std::vector<Macro>& Macros, const std::string& FilePath)
     catch (...) { return -1; }
 }
 
+bool Persistence::SaveSettings(const RecorderOptions& Options, const std::string& FilePath)
+{
+    try
+    {
+        std::string Directory = FilePath;
+        auto Slash = Directory.find_last_of("\\/");
+
+        if (Slash != std::string::npos)
+        {
+            Directory = Directory.substr(0, Slash);
+            CreateDirectoryA(Directory.c_str(), nullptr);
+        }
+
+        std::ofstream File(FilePath);
+
+        if (!File.is_open())
+            return false;
+
+        File << RecorderOptionsToJson(Options).dump(4);
+        return true;
+    }
+
+    catch (...) { return false; }
+}
+
+bool Persistence::LoadSettings(RecorderOptions& Options, const std::string& FilePath)
+{
+    try
+    {
+        std::ifstream File(FilePath);
+        if (!File.is_open()) return false;
+
+        json Root;
+        File >> Root;
+
+        if (!Root.is_object())
+            return false;
+
+        RecorderOptionsFromJson(Root, Options);
+        return true;
+    }
+
+    catch (...) { return false; }
+}
+
+std::string Persistence::SettingsFilePath()
+{
+    char path[MAX_PATH] = {};
+    if (SUCCEEDED(SHGetFolderPathA(nullptr, CSIDL_APPDATA, nullptr, 0, path)))
+    {
+        std::string Directory = std::string(path) + "\\Macro Manager";
+        CreateDirectoryA(Directory.c_str(), nullptr);
+        return Directory + "\\settings.json";
+    }
+    return "settings.json";
+}
+
 std::string Persistence::DefaultFilePath()
 {
     char path[MAX_PATH] = {};
@@ -191,6 +282,54 @@ std::string Persistence::DefaultFilePath()
         return Directory + "\\macros.json";
     }
     return "macros.json";
+}
+
+std::string Persistence::LoadLastSeenVersion()
+{
+    try
+    {
+        std::ifstream File(LastSeenVersionFilePath());
+        if (!File.is_open())
+            return "";
+
+        json Root;
+        File >> Root;
+
+        if (Root.contains("lastSeenVersion") && Root["lastSeenVersion"].is_string())
+            return Root["lastSeenVersion"].get<std::string>();
+    }
+    catch (...) {}
+
+    return "";
+}
+
+bool Persistence::SaveLastSeenVersion(const std::string& Version)
+{
+    try
+    {
+        json Root;
+        Root["lastSeenVersion"] = Version;
+
+        std::ofstream File(LastSeenVersionFilePath(), std::ios::trunc);
+        if (!File.is_open())
+            return false;
+
+        File << Root.dump(2);
+        return true;
+    }
+    catch (...) { return false; }
+}
+
+std::string Persistence::LastSeenVersionFilePath()
+{
+    char path[MAX_PATH] = {};
+    if (SUCCEEDED(SHGetFolderPathA(nullptr, CSIDL_APPDATA, nullptr, 0, path)))
+    {
+        std::string Directory = std::string(path) + "\\Macro Manager";
+        CreateDirectoryA(Directory.c_str(), nullptr);
+        return Directory + "\\changelog_prefs.json";
+    }
+    return "changelog_prefs.json";
 }
 
 static int MgpKeyNameToVK(const std::string& Name)
@@ -208,7 +347,7 @@ static int MgpKeyNameToVK(const std::string& Name)
 
         SHORT vks = VkKeyScanA(Character);
 
-        if (vks != -1) 
+        if (vks != -1)
             return vks & 0xFF;
     }
 

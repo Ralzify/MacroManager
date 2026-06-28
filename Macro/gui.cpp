@@ -6,6 +6,7 @@
 #include "recorder.h"
 #include "sound_player.h"
 #include "updater.h"
+#include "changelog.h"
 
 #include "ImGui/imgui.h"
 #include "ImGui/imgui_impl_win32.h"
@@ -101,7 +102,13 @@ bool Gui::Init(HINSTANCE hInstance)
     MacroManager::Get().RebindAll();
     strcpy_s(ExportPathBuf, Persistence::DefaultFilePath().c_str());
 
+    Persistence::LoadSettings(RecordOptions, Persistence::SettingsFilePath());
     Updater::Get().CheckForUpdatesAsync();
+
+    std::string LastSeenVersion = Persistence::LoadLastSeenVersion();
+
+    if (LastSeenVersion != APP_VERSION_STRING)
+        ShowChangelog = true;
 
     return true;
 }
@@ -719,6 +726,7 @@ void Gui::RenderFrame()
     }
 
     DrawUpdateDialog();
+    DrawChangelogDialog();
 
     if (ShowRecordOptions) 
     { 
@@ -824,7 +832,6 @@ void Gui::RenderFrame()
         }
 
         ImGui::Checkbox("Play chime on toggle", &RecordOptions.MacroToggleChime);
-        // ImGui::TextDisabled("  Place enabled.mp3 / disabled.mp3 next to the .exe");
 
         ImGui::Spacing();
 
@@ -833,6 +840,7 @@ void Gui::RenderFrame()
             CapturingRecordKey = false;
             CapturingMacroToggleKey = false;
             RecordOptionsOpen = false;
+            Persistence::SaveSettings(RecordOptions, Persistence::SettingsFilePath());
             ImGui::CloseCurrentPopup();
         }
 
@@ -927,6 +935,14 @@ void Gui::DrawToolbar()
     {
         MacroManager::Get().StopAll();
         StatusMessage = "All macros disabled.";
+        StatusTimer = 3.0f;
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Start All"))
+    {
+        MacroManager::Get().StartAll();
+        StatusMessage = "All macros enabled.";
         StatusTimer = 3.0f;
     }
 
@@ -1051,6 +1067,44 @@ void Gui::SetMacroEnabled(const std::string& macroId, bool enabled)
 {
     MacroManager::Get().SetEnabled(macroId, enabled);
     PlayToggleChime(enabled);
+}
+
+void Gui::RefreshLockedAppListFor(const std::string& MacroId)
+{
+    LockedAppList.clear();
+    LockedAppSelectedIdx = -1;
+
+    EnumWindows([](HWND hWnd, LPARAM lParam) -> BOOL {
+        auto* List = reinterpret_cast<std::vector<std::pair<std::string, std::string>>*>(lParam);
+        if (!IsWindowVisible(hWnd)) return TRUE;
+        char Title[512] = {};
+        GetWindowTextA(hWnd, Title, sizeof(Title));
+        if (Title[0] == '\0') return TRUE;
+        std::string FullTitle(Title);
+        std::string AppName = FullTitle;
+        auto Sep = FullTitle.rfind(" - ");
+        if (Sep != std::string::npos)
+            AppName = FullTitle.substr(Sep + 3);
+        if (AppName.empty()) AppName = FullTitle;
+        for (auto& Entry : *List)
+            if (Entry.first == AppName) return TRUE;
+        List->push_back({ AppName, FullTitle });
+        return TRUE;
+        }, reinterpret_cast<LPARAM>(&LockedAppList));
+
+    Macro* M = MacroManager::Get().FindMacro(MacroId);
+
+    if (M && M->LockInputToApp && !M->LockedAppName.empty())
+    {
+        for (int i = 0; i < (int)LockedAppList.size(); ++i)
+        {
+            if (LockedAppList[i].first == M->LockedAppName)
+            {
+                LockedAppSelectedIdx = i;
+                break;
+            }
+        }
+    }
 }
 
 void Gui::DrawStatusBar()
@@ -1188,6 +1242,60 @@ void Gui::DrawUpdateDialog()
     }
 }
 
+void Gui::DrawChangelogDialog()
+{
+    if (ShowChangelog)
+    {
+        ImGui::OpenPopup("What's New");
+        ShowChangelog = false;
+
+        Persistence::SaveLastSeenVersion(APP_VERSION_STRING);
+    }
+
+    if (ImGui::BeginPopupModal("What's New", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::Text("What's new in Macro Manager v" APP_VERSION_STRING);
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        ImGui::BeginChild("##changelog", { 460, 260 }, true);
+
+        const auto& Versions = GetChangelog();
+
+        for (size_t i = 0; i < Versions.size(); ++i)
+        {
+            const ChangelogVersion& Entry = Versions[i];
+
+            ImGui::TextColored({ 0.4f, 0.9f, 0.5f, 1.0f }, "Version %s", Entry.Version.c_str());
+            ImGui::Spacing();
+
+            for (const std::string& Change : Entry.Changes)
+            {
+                ImGui::Bullet();
+                ImGui::SameLine();
+                ImGui::TextWrapped("%s", Change.c_str());
+            }
+
+            if (i + 1 < Versions.size())
+            {
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Spacing();
+            }
+        }
+
+        ImGui::EndChild();
+
+        ImGui::Spacing();
+
+        if (ImGui::Button("Close", { 120,0 }))
+            ImGui::CloseCurrentPopup();
+
+        ImGui::EndPopup();
+    }
+}
+
 void Gui::DrawMacroList()
 {
     ImGui::Text("Macros"); ImGui::Separator(); ImGui::Spacing();
@@ -1262,6 +1370,18 @@ void Gui::DrawMacroEditor(const std::string& MacroId)
         SelectedMacroId.clear(); 
         return; 
     }
+
+    if (LockUiMacroId != MacroId)
+    {
+        LockUiMacroId = MacroId;
+        LockInputToTab = Macro->LockInputToApp;
+        LockedAppList.clear();
+        LockedAppSelectedIdx = -1;
+
+        if (LockInputToTab)
+            RefreshLockedAppListFor(MacroId);
+    }
+
 
     ImGui::Text("Edit Macro"); 
     ImGui::Separator(); 
@@ -1338,6 +1458,66 @@ void Gui::DrawMacroEditor(const std::string& MacroId)
     }
 
     ImGui::PopStyleColor(2);
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    if (ImGui::Checkbox("Lock Input to App", &LockInputToTab))
+    {
+        if (LockInputToTab)
+        {
+            RefreshLockedAppListFor(MacroId);
+        }
+        else
+        {
+            Macro->LockInputToApp = false;
+            Macro->LockedAppName.clear();
+            MacroManager::Get().RebindAll();
+
+            LockedAppList.clear();
+            LockedAppSelectedIdx = -1;
+        }
+    }
+
+    ImGui::Spacing();
+
+    if (LockInputToTab)
+    {
+        if (ImGui::Button("Refresh Apps"))
+            RefreshLockedAppListFor(MacroId);
+
+        ImGui::Spacing();
+
+        std::string ComboLabel = (LockedAppSelectedIdx >= 0 && LockedAppSelectedIdx < (int)LockedAppList.size()) ? LockedAppList[LockedAppSelectedIdx].first : "(select an app)";
+
+        ImGui::SetNextItemWidth(320);
+
+        if (ImGui::BeginCombo("##LockedApp", ComboLabel.c_str()))
+        {
+            for (int i = 0; i < (int)LockedAppList.size(); ++i)
+            {
+                bool IsSelected = (i == LockedAppSelectedIdx);
+
+                if (ImGui::Selectable(LockedAppList[i].first.c_str(), IsSelected))
+                {
+                    LockedAppSelectedIdx = i;
+
+                    Macro->LockInputToApp = true;
+                    Macro->LockedAppName = LockedAppList[i].first;
+                    MacroManager::Get().RebindAll();
+                }
+
+                if (IsSelected)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
+        ImGui::Spacing();
+        ImGui::TextDisabled("Macro hotkey only fires when this app is in the foreground.");
+        ImGui::Spacing();
+    }
 
     ImGui::Spacing();
     ImGui::Separator();
@@ -1732,6 +1912,7 @@ void Gui::DrawActionEditor(const std::string& macroId, int idx)
 void Gui::Shutdown()
 {
     Persistence::Save(MacroManager::Get().GetMacros(), Persistence::DefaultFilePath());
+    Persistence::SaveSettings(RecordOptions, Persistence::SettingsFilePath());
 
     if (IconTexture)
     {

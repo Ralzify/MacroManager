@@ -3,22 +3,18 @@
 #include <vector>
 #include <windows.h>
 
-// ─────────────────────────────────────────────
-//  Action Types
-// ─────────────────────────────────────────────
-
 enum class ActionType
 {
-    KeyPress,       // Press and release a key
-    KeyDown,        // Hold a key down
-    KeyUp,          // Release a held key
-    MouseMove,      // Move mouse to absolute position
-    MouseMoveRel,   // Move mouse relative to current position
-    MouseClick,     // Click a mouse button
-    MouseDown,      // Hold a mouse button
-    MouseUp,        // Release a mouse button
-    MouseScroll,    // Scroll wheel (positive = up, negative = down)
-    Delay,          // Wait for N milliseconds
+    KeyPress,
+    KeyDown,
+    KeyUp,
+    MouseMove,
+    MouseMoveRel,
+    MouseClick,
+    MouseDown,
+    MouseUp,
+    MouseScroll,
+    Delay,
 };
 
 enum class MouseButton
@@ -39,9 +35,6 @@ struct MacroAction
     int MsDelay = 100;
 };
 
-// ─────────────────────────────────────────────
-//  Macro
-// ─────────────────────────────────────────────
 
 struct Macro
 {
@@ -51,6 +44,8 @@ struct Macro
     bool Enabled = true;
     bool Repeat = false;
     int RepeatCount = 1;
+    bool LockInputToApp = false;
+    std::string LockedAppName;
     std::vector<MacroAction> Actions;
 };
 

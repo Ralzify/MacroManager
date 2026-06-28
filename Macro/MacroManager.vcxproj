@@ -166,6 +166,7 @@ copy /Y "$(ProjectDir)disabled.mp3" "$(OutDir)"</Command>
     <ClCompile Include="updater.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="changelog.h" />
     <ClInclude Include="gui.h" />
     <ClInclude Include="hook_manager.h" />
     <ClInclude Include="ImGui\imconfig.h" />

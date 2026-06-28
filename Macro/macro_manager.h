@@ -24,6 +24,7 @@ public:
     void Execute(const std::string& id);
     bool IsRunning(const std::string& id) const;
     void StopAll();
+    void StartAll();
 
     static bool ShouldStop();
     static void ClearStop();

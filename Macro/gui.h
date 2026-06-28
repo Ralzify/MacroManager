@@ -35,9 +35,12 @@ private:
     void DrawToolbar();
     void DrawStatusBar();
     void DrawUpdateDialog();
+    void DrawChangelogDialog();
 
     void SetMacroEnabled(const std::string& macroId, bool enabled);
     void PlayToggleChime(bool enabled);
+
+    void RefreshLockedAppListFor(const std::string& macroId);
 
     bool LoadIconTexture();
 
@@ -63,6 +66,8 @@ private:
     bool HasCheckedForUpdatesThisSession = false;
     float QuitAfterLaunchingInstallerTimer = -1.0f;
 
+    bool ShowChangelog = false;
+
     char ImportPathBuf[512] = {};
     char ExportPathBuf[512] = {};
     char ExportSelectedPathBuf[512] = {};
@@ -79,6 +84,11 @@ private:
     bool RecordOptionsOpen = false;
     bool CapturingRecordKey = false;
     bool ConfirmClearActions = false;
+
+    bool LockInputToTab = false;
+    std::vector<std::pair<std::string, std::string>> LockedAppList;
+    int LockedAppSelectedIdx = -1;
+    std::string LockUiMacroId;
 
     bool ShowActionEditor = false;
     int EditActionIdx = -1;

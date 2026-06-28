@@ -124,5 +124,11 @@
     <ClInclude Include="version.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="changelog.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="app.rc" />
   </ItemGroup>
 </Project>
