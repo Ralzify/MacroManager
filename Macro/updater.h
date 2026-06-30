@@ -30,7 +30,7 @@ class Updater
 public:
     static Updater& Get();
 
-    void CheckForUpdatesAsync();
+    void CheckForUpdatesAsync(bool isManualCheck = false);
 
     void Poll();
 
@@ -38,7 +38,7 @@ public:
 
     void RemindLater();
 
-    bool IsVersionSkipped(const std::string& version) const;
+    bool IsVersionSnoozed(const std::string& version) const;
 
     UpdateState State() const { return CurrentState; }
     const UpdateInfo& PendingUpdate() const { return Pending; }
@@ -55,6 +55,10 @@ private:
     std::string Error;
     float       Progress = -1.0f;
     std::string DownloadedInstallerPath;
+
+    std::string RemindedVersion;
+
+    bool CheckWasManual = false;
 
     struct PendingResult
     {

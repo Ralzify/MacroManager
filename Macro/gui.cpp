@@ -42,6 +42,16 @@ static float AnimTo(ImGuiID id, float target, float speed)
     return Current;
 }
 
+static const size_t kMacroNameDisplayLimit = 20;
+
+static std::string TruncateForDisplay(const std::string& Text, size_t MaxLen = kMacroNameDisplayLimit)
+{
+    if (Text.size() <= MaxLen)
+        return Text;
+
+    return Text.substr(0, MaxLen) + "...";
+}
+
 bool Gui::Init(HINSTANCE hInstance)
 {
     if (!CreateAppWindow(hInstance)) 
@@ -315,7 +325,7 @@ void Gui::RenderFrame()
 
     if (ImGui::BeginPopupModal("Import Macros", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
-        ImGui::Text("JSON file path:");
+        ImGui::Text("Macro file path (.json or .mrf):");
         ImGui::SetNextItemWidth(360);
         ImGui::InputText("##ip", ImportPathBuf, sizeof(ImportPathBuf));
         ImGui::SameLine();
@@ -327,11 +337,13 @@ void Gui::RenderFrame()
             if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pDlg))))
             {
                 COMDLG_FILTERSPEC filter[] = {
+                    { L"Macro Files (*.json, *.mrf)", L"*.json;*.mrf" },
                     { L"JSON Files", L"*.json" },
+                    { L"Macro Recorder Files", L"*.mrf" },
                     { L"All Files",  L"*.*" }
                 };
 
-                pDlg->SetFileTypes(2, filter);
+                pDlg->SetFileTypes(4, filter);
                 pDlg->SetDefaultExtension(L"json");
                 pDlg->SetTitle(L"Import Macros");
 
@@ -380,7 +392,17 @@ void Gui::RenderFrame()
         ImGui::Spacing();
         if (ImGui::Button("Import", { 120,0 }))
         {
-            int n = Persistence::Append(MacroManager::Get().GetMacros(), ImportPathBuf);
+            std::string Path = ImportPathBuf;
+            size_t Dot = Path.find_last_of('.');
+            std::string Ext = (Dot != std::string::npos) ? Path.substr(Dot) : "";
+            for (auto& c : Ext) c = static_cast<char>(::tolower(static_cast<unsigned char>(c)));
+
+            int n = -1;
+
+            if (Ext == ".mrf")
+                n = Persistence::ImportMRF(MacroManager::Get().GetMacros(), Path);
+            else
+                n = Persistence::Append(MacroManager::Get().GetMacros(), Path);
 
             if (n >= 0)
                 MacroManager::Get().RebindAll();
@@ -742,7 +764,7 @@ void Gui::RenderFrame()
         if (ImGui::Button("Check for Updates", { 160,0 }))
         {
             if (Updater::Get().State() != UpdateState::Checking && Updater::Get().State() != UpdateState::Downloading)
-                Updater::Get().CheckForUpdatesAsync();
+                Updater::Get().CheckForUpdatesAsync(true);
         }
         ImGui::Spacing();
         if (ImGui::Button("Close", { 120,0 })) ImGui::CloseCurrentPopup();
@@ -976,6 +998,49 @@ void Gui::RenderFrame()
     }
     else if (!ConfirmDeleteMacroId.empty())
         ConfirmDeleteMacroId.clear();
+
+    if (ConfirmDeleteActions)
+    {
+        ImGui::OpenPopup("Confirm Delete");
+        ConfirmDeleteActions = false;
+    }
+
+    if (ImGui::BeginPopupModal("Confirm Delete", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        auto* ActionsMacro = MacroManager::Get().FindMacro(ConfirmDeleteActionsMacroId);
+
+        if (ActionsMacro && SelectedActionsMacroId == ConfirmDeleteActionsMacroId)
+            ImGui::Text("Delete %zu selected action(s) from \"%s\"?", SelectedActionIndices.size(), ActionsMacro->Name.c_str());
+        else
+            ImGui::Text("Delete the selected actions?");
+
+        ImGui::Text("This cannot be undone.");
+        ImGui::Spacing();
+        ImGui::PushStyleColor(ImGuiCol_Button, { 0.55f,0.15f,0.15f,1 });
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, { 0.75f,0.20f,0.20f,1 });
+
+        if (ImGui::Button("Delete", { 110,0 }))
+        {
+            if (ActionsMacro && SelectedActionsMacroId == ConfirmDeleteActionsMacroId)
+                DeleteSelectedActions(*ActionsMacro);
+
+            ConfirmDeleteActionsMacroId.clear();
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::PopStyleColor(2);
+        ImGui::SameLine();
+
+        if (ImGui::Button("Cancel", { 110,0 }))
+        {
+            ConfirmDeleteActionsMacroId.clear();
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+    else if (!ConfirmDeleteActionsMacroId.empty())
+        ConfirmDeleteActionsMacroId.clear();
 
     ImGui::Render();
     const float clr[4] = { 0.08f,0.08f,0.10f,1.0f };
@@ -1289,7 +1354,7 @@ void Gui::DrawUpdateDialog()
             ImGui::Spacing();
 
             if (ImGui::Button("Try Again", { 120,0 }))
-                Updater::Get().CheckForUpdatesAsync();
+                Updater::Get().CheckForUpdatesAsync(true);
 
             ImGui::SameLine();
 
@@ -1478,7 +1543,7 @@ void Gui::DrawMacroList()
             DrawList->AddRect(HlMin, RowMax, IM_COL32(90, 150, 255, 130), 5.0f, 0, 1.5f);
 
             DragFloatActive = true;
-            DragFloatLabel = Macro.Name;
+            DragFloatLabel = TruncateForDisplay(Macro.Name);
             DragFloatKey = KeyText;
             DragFloatRunning = Running;
             DragFloatX = RestPos.x;
@@ -1491,7 +1556,11 @@ void Gui::DrawMacroList()
             DrawList->AddCircleFilled({ RestPos.x + 4.0f, RowMin.y + RowH * 0.5f }, 4.0f, IM_COL32(80, 230, 120, 255));
 
         const float TextY = RowMin.y + (RowH - ImGui::GetTextLineHeight()) * 0.5f;
-        DrawList->AddText({ RestPos.x + 14.0f, TextY }, TextCol, Macro.Name.c_str());
+        const std::string DisplayName = TruncateForDisplay(Macro.Name);
+        DrawList->AddText({ RestPos.x + 14.0f, TextY }, TextCol, DisplayName.c_str());
+
+        if (Hovered && !IsDragging && Macro.Name.size() > kMacroNameDisplayLimit)
+            ImGui::SetTooltip("%s", Macro.Name.c_str());
 
         if (!KeyText.empty())
         {
@@ -1694,6 +1763,22 @@ void Gui::DeleteSelectedActions(Macro& MacroRef)
     DragIdx = -1;
 }
 
+void Gui::RequestDeleteSelectedActions(Macro& MacroRef)
+{
+    if (SelectedActionIndices.empty())
+        return;
+
+    if (SelectedActionIndices.size() > 1)
+    {
+        ConfirmDeleteActionsMacroId = MacroRef.ID;
+        ConfirmDeleteActions = true;
+    }
+    else
+    {
+        DeleteSelectedActions(MacroRef);
+    }
+}
+
 void Gui::HandleActionListShortcuts(Macro& MacroRef)
 {
     if (CapturingKey || CapturingRecordKey || CapturingActionKey)
@@ -1729,7 +1814,7 @@ void Gui::HandleActionListShortcuts(Macro& MacroRef)
 
     if (ImGui::Shortcut(ImGuiKey_Delete, ImGuiInputFlags_RouteFocused) || ImGui::Shortcut(ImGuiKey_Backspace, ImGuiInputFlags_RouteFocused))
     {
-        DeleteSelectedActions(MacroRef);
+        RequestDeleteSelectedActions(MacroRef);
     }
 
     if (ImGui::Shortcut(ImGuiKey_Escape, ImGuiInputFlags_RouteFocused))
@@ -2046,7 +2131,7 @@ void Gui::DrawMacroEditor(const std::string& MacroId)
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, { 0.75f,0.20f,0.20f,1 });
 
         if (ImGui::SmallButton("Delete"))
-            DeleteSelectedActions(*Macro);
+            RequestDeleteSelectedActions(*Macro);
 
         ImGui::PopStyleColor(2);
     }

@@ -49,6 +49,34 @@ struct Macro
     std::vector<MacroAction> Actions;
 };
 
+inline bool operator==(const MacroAction& A, const MacroAction& B)
+{
+    return A.Type == B.Type && A.KeyCode == B.KeyCode && A.MouseX == B.MouseX && A.MouseY == B.MouseY 
+        && A.MouseButton == B.MouseButton && A.ScrollDelta == B.ScrollDelta && A.MsDelay == B.MsDelay;
+}
+
+inline bool operator!=(const MacroAction& A, const MacroAction& B)
+{
+    return !(A == B);
+}
+
+inline bool IsDuplicateMacro(const Macro& A, const Macro& B)
+{
+    if (A.Name != B.Name)
+        return false;
+
+    if (A.Actions.size() != B.Actions.size())
+        return false;
+
+    for (size_t i = 0; i < A.Actions.size(); ++i)
+    {
+        if (A.Actions[i] != B.Actions[i])
+            return false;
+    }
+
+    return true;
+}
+
 inline const char* ActionTypeName(ActionType Type)
 {
     switch (Type)

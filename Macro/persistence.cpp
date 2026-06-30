@@ -6,6 +6,10 @@
 #include <iomanip>
 #include <random>
 #include <string>
+#include <vector>
+#include <cstdint>
+#include <cstring>
+#include <algorithm>
 #include <windows.h>
 #include <shlobj.h>
 
@@ -205,7 +209,22 @@ int Persistence::Append(std::vector<Macro>& Macros, const std::string& FilePath)
 
         for (const auto& j : Root)
         {
-            Macros.push_back(MacroFromJson(j));
+            Macro Candidate = MacroFromJson(j);
+
+            bool IsDuplicate = false;
+            for (const auto& Existing : Macros)
+            {
+                if (IsDuplicateMacro(Existing, Candidate))
+                {
+                    IsDuplicate = true;
+                    break;
+                }
+            }
+
+            if (IsDuplicate)
+                continue;
+
+            Macros.push_back(std::move(Candidate));
             ++Imported;
         }
 
@@ -594,8 +613,22 @@ int Persistence::ImportMGP(std::vector<Macro>& macros, const std::string& FilePa
                     }
                 }
                 Current.Actions = std::move(collapsed);
-                macros.push_back(std::move(Current));
-                ++Imported;
+
+                bool IsDuplicate = false;
+                for (const auto& Existing : macros)
+                {
+                    if (IsDuplicateMacro(Existing, Current))
+                    {
+                        IsDuplicate = true;
+                        break;
+                    }
+                }
+
+                if (!IsDuplicate)
+                {
+                    macros.push_back(std::move(Current));
+                    ++Imported;
+                }
             }
 
             Current = Macro{};
@@ -666,4 +699,228 @@ int Persistence::ImportMGP(std::vector<Macro>& macros, const std::string& FilePa
 
     FinishMacro();
     return Imported;
+}
+
+namespace
+{
+    constexpr size_t MrfHeaderSize = 0x64;
+    constexpr size_t MrfCommonHeaderSize = 0x2C;
+    constexpr size_t MrfSigRelOffset = 0x1C;
+    constexpr size_t MrfMaxSuffixScan = 64;
+
+    constexpr int32_t MrfEventMouseMove = 0;
+    constexpr int32_t MrfEventMouseScroll = 2;
+    constexpr int32_t MrfEventMouseButtonNoCoords = 3;
+    constexpr int32_t MrfEventKey = 5;
+    constexpr int32_t MrfEventMouseClick = 6;
+    constexpr int32_t MrfEventWait = 7;
+
+    int32_t MrfReadI32(const std::vector<uint8_t>& Bytes, size_t Offset)
+    {
+        int32_t Value;
+        std::memcpy(&Value, Bytes.data() + Offset, sizeof(Value));
+        return Value;
+    }
+
+    bool MrfSignatureAt(const std::vector<uint8_t>& Bytes, size_t Pos)
+    {
+        if (Pos + 16 > Bytes.size())
+            return false;
+
+        return MrfReadI32(Bytes, Pos + 0) == 1 && MrfReadI32(Bytes, Pos + 4) == 0 && MrfReadI32(Bytes, Pos + 8) == 1 && MrfReadI32(Bytes, Pos + 12) == 65536;
+    }
+
+    std::string DeriveNameFromPath(const std::string& FilePath)
+    {
+        size_t Slash = FilePath.find_last_of("\\/");
+        std::string Base = (Slash == std::string::npos) ? FilePath : FilePath.substr(Slash + 1);
+
+        size_t Dot = Base.find_last_of('.');
+        if (Dot != std::string::npos)
+            Base = Base.substr(0, Dot);
+
+        return Base.empty() ? "Imported Macro" : Base;
+    }
+
+    ::MouseButton MrfMapMouseButton(int32_t VkButton)
+    {
+        switch (VkButton)
+        {
+        case 1: return ::MouseButton::Left;
+        case 2: return ::MouseButton::Right;
+        case 4: return ::MouseButton::Middle;
+        default: return ::MouseButton::Left;
+        }
+    }
+
+    void MrfPushDelay(std::vector<MacroAction>& Actions, int32_t Ms)
+    {
+        if (Ms > 0)
+        {
+            MacroAction Delay;
+            Delay.Type = ActionType::Delay;
+            Delay.MsDelay = Ms;
+            Actions.push_back(Delay);
+        }
+    }
+}
+
+int Persistence::ImportMRF(std::vector<Macro>& macros, const std::string& FilePath)
+{
+    std::ifstream File(FilePath, std::ios::binary);
+
+    if (!File.is_open())
+        return -1;
+
+    std::vector<uint8_t> Bytes((std::istreambuf_iterator<char>(File)), std::istreambuf_iterator<char>());
+
+    if (Bytes.size() < MrfHeaderSize)
+        return -1;
+
+    static std::mt19937_64 rng(std::random_device{}());
+    auto makeId = [&]() -> std::string {
+        std::uniform_int_distribution<uint64_t> d;
+        std::ostringstream oss;
+        oss << std::hex << std::setw(16) << std::setfill('0') << d(rng) << std::setw(16) << std::setfill('0') << d(rng);
+        return oss.str();
+        };
+
+    Macro Imported;
+    Imported.ID = makeId();
+    Imported.Name = DeriveNameFromPath(FilePath);
+    Imported.Enabled = true;
+    Imported.Repeat = false;
+
+    int LastMouseX = 0;
+    int LastMouseY = 0;
+
+    size_t Pos = MrfHeaderSize;
+
+    while (Pos + 4 <= Bytes.size())
+    {
+        if (!MrfSignatureAt(Bytes, Pos + MrfSigRelOffset))
+            break;
+
+        size_t BodyEnd = Pos + MrfCommonHeaderSize;
+        size_t RecordEnd = 0;
+
+        for (size_t Suffix = 0; Suffix <= MrfMaxSuffixScan; Suffix += 2)
+        {
+            size_t Candidate = BodyEnd + Suffix;
+
+            if (Candidate + 4 > Bytes.size())
+            {
+                RecordEnd = Bytes.size();
+                break;
+            }
+
+            if (MrfSignatureAt(Bytes, Candidate + MrfSigRelOffset))
+            {
+                RecordEnd = Candidate;
+                break;
+            }
+        }
+
+        if (RecordEnd == 0 || RecordEnd <= Pos)
+            break;
+
+        int32_t EventType = MrfReadI32(Bytes, Pos + 0x00);
+        int32_t F1 = MrfReadI32(Bytes, Pos + 0x04);
+        int32_t F2 = MrfReadI32(Bytes, Pos + 0x08);
+        int32_t F3 = MrfReadI32(Bytes, Pos + 0x0C);
+
+        switch (EventType)
+        {
+        case MrfEventMouseMove:
+        {
+            int32_t EndX = MrfReadI32(Bytes, Pos + 0x10);
+            int32_t EndY = MrfReadI32(Bytes, Pos + 0x14);
+
+            MrfPushDelay(Imported.Actions, F1);
+
+            MacroAction Move;
+            Move.Type = ActionType::MouseMove;
+            Move.MouseX = EndX;
+            Move.MouseY = EndY;
+            Imported.Actions.push_back(Move);
+
+            LastMouseX = EndX;
+            LastMouseY = EndY;
+            break;
+        }
+        case MrfEventMouseScroll:
+        {
+            MrfPushDelay(Imported.Actions, F1);
+
+            MacroAction Scroll;
+            Scroll.Type = ActionType::MouseScroll;
+            Scroll.ScrollDelta = F3;
+            Imported.Actions.push_back(Scroll);
+            break;
+        }
+        case MrfEventMouseButtonNoCoords:
+        {
+            MrfPushDelay(Imported.Actions, F1);
+
+            MacroAction Click;
+            Click.Type = ActionType::MouseClick;
+            Click.MouseButton = MrfMapMouseButton(F2);
+            Click.MouseX = LastMouseX;
+            Click.MouseY = LastMouseY;
+            Imported.Actions.push_back(Click);
+            break;
+        }
+        case MrfEventKey:
+        {
+            if (F2 > 0 && F2 <= 254)
+            {
+                MacroAction Key;
+                Key.Type = ActionType::KeyPress;
+                Key.KeyCode = F2;
+                Key.MsDelay = (F1 > 0) ? F1 : 0;
+                Imported.Actions.push_back(Key);
+            }
+            break;
+        }
+        case MrfEventMouseClick:
+        {
+            int32_t Button = (Pos + 0x30 <= Bytes.size()) ? MrfReadI32(Bytes, Pos + 0x2C) : 1;
+
+            MrfPushDelay(Imported.Actions, F1);
+
+            MacroAction Click;
+            Click.Type = ActionType::MouseClick;
+            Click.MouseX = F2;
+            Click.MouseY = F3;
+            Click.MouseButton = MrfMapMouseButton(Button);
+            Imported.Actions.push_back(Click);
+
+            LastMouseX = F2;
+            LastMouseY = F3;
+            break;
+        }
+        case MrfEventWait:
+        {
+            MrfPushDelay(Imported.Actions, F1);
+            break;
+        }
+        default:
+            // unrecognized
+            break;
+        }
+
+        Pos = RecordEnd;
+    }
+
+    if (Imported.Actions.empty())
+        return 0;
+
+    for (const auto& Existing : macros)
+    {
+        if (IsDuplicateMacro(Existing, Imported))
+            return 0;
+    }
+
+    macros.push_back(std::move(Imported));
+    return 1;
 }

@@ -29,8 +29,7 @@ namespace
     bool LooksLikeInstallerAsset(const std::string& name)
     {
         std::string lower = name;
-        std::transform(lower.begin(), lower.end(), lower.begin(),
-            [](unsigned char c) { return (char)std::tolower(c); });
+        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return (char)std::tolower(c); });
 
         bool isExe = lower.size() >= 4 && lower.compare(lower.size() - 4, 4, ".exe") == 0;
         bool hasSetup = lower.find("setup") != std::string::npos;
@@ -120,27 +119,13 @@ namespace
         MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), out.data(), size);
         return out;
     }
-
-    std::string SkippedVersionsFilePath()
-    {
-        char path[MAX_PATH] = {};
-        if (SUCCEEDED(SHGetFolderPathA(nullptr, CSIDL_APPDATA, nullptr, 0, path)))
-        {
-            std::string dir = std::string(path) + "\\Macro Manager";
-            CreateDirectoryA(dir.c_str(), nullptr);
-            return dir + "\\update_prefs.json";
-        }
-        return "update_prefs.json";
-    }
 }
 
 namespace
 {
     std::string HttpGetText(const std::wstring& host, const std::wstring& path)
     {
-        HINTERNET hSession = WinHttpOpen(kUserAgent,
-            WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
-            WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+        HINTERNET hSession = WinHttpOpen(kUserAgent, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
 
         if (!hSession)
             throw std::runtime_error("Could not open a network session.");
@@ -166,9 +151,7 @@ namespace
         const wchar_t* headers = L"Accept: application/vnd.github+json\r\n";
         WinHttpAddRequestHeaders(hRequest, headers, (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
 
-        bool ok = WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-            WINHTTP_NO_REQUEST_DATA, 0, 0, 0)
-            && WinHttpReceiveResponse(hRequest, nullptr);
+        bool ok = WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) && WinHttpReceiveResponse(hRequest, nullptr);
 
         if (!ok)
         {
@@ -221,8 +204,7 @@ namespace
         return body;
     }
 
-    void HttpDownloadFile(const std::wstring& fullUrl, const std::string& destPath,
-        const std::function<void(float)>& onProgress)
+    void HttpDownloadFile(const std::wstring& fullUrl, const std::string& destPath, const std::function<void(float)>& onProgress)
     {
         URL_COMPONENTS urlComp = {};
         urlComp.dwStructSize = sizeof(urlComp);
@@ -239,23 +221,20 @@ namespace
 
         bool isHttps = (urlComp.nScheme == INTERNET_SCHEME_HTTPS);
 
-        HINTERNET hSession = WinHttpOpen(kUserAgent,
-            WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
-            WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+        HINTERNET hSession = WinHttpOpen(kUserAgent, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
 
         if (!hSession)
             throw std::runtime_error("Could not open a network session.");
 
         HINTERNET hConnect = WinHttpConnect(hSession, hostBuf, urlComp.nPort, 0);
+
         if (!hConnect)
         {
             WinHttpCloseHandle(hSession);
             throw std::runtime_error("Could not connect to the download server.");
         }
 
-        HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", pathBuf,
-            nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
-            isHttps ? WINHTTP_FLAG_SECURE : 0);
+        HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", pathBuf, nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, isHttps ? WINHTTP_FLAG_SECURE : 0);
 
         if (!hRequest)
         {
@@ -279,8 +258,7 @@ namespace
 
         DWORD statusCode = 0;
         DWORD statusSize = sizeof(statusCode);
-        WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_FLAG_NUMBER | WINHTTP_QUERY_STATUS_CODE,
-            WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &statusSize, WINHTTP_NO_HEADER_INDEX);
+        WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_FLAG_NUMBER | WINHTTP_QUERY_STATUS_CODE, WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &statusSize, WINHTTP_NO_HEADER_INDEX);
 
         if (statusCode < 200 || statusCode >= 300)
         {
@@ -292,11 +270,10 @@ namespace
 
         DWORD contentLength = 0;
         DWORD clSize = sizeof(contentLength);
-        bool haveLength = WinHttpQueryHeaders(hRequest,
-            WINHTTP_QUERY_FLAG_NUMBER | WINHTTP_QUERY_CONTENT_LENGTH,
-            WINHTTP_HEADER_NAME_BY_INDEX, &contentLength, &clSize, WINHTTP_NO_HEADER_INDEX);
+        bool haveLength = WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_FLAG_NUMBER | WINHTTP_QUERY_CONTENT_LENGTH, WINHTTP_HEADER_NAME_BY_INDEX, &contentLength, &clSize, WINHTTP_NO_HEADER_INDEX);
 
         std::ofstream outFile(destPath, std::ios::binary | std::ios::trunc);
+
         if (!outFile.is_open())
         {
             WinHttpCloseHandle(hRequest);
@@ -367,47 +344,24 @@ std::string Updater::ScratchDir()
     return "MacroManagerUpdate";
 }
 
-bool Updater::IsVersionSkipped(const std::string& version) const
+bool Updater::IsVersionSnoozed(const std::string& version) const
 {
-    try
-    {
-        std::ifstream file(SkippedVersionsFilePath());
-        if (!file.is_open())
-            return false;
-
-        json root;
-        file >> root;
-
-        if (root.contains("skippedVersion") && root["skippedVersion"].is_string())
-            return root["skippedVersion"].get<std::string>() == version;
-    }
-    catch (...) {}
-
-    return false;
+    return !RemindedVersion.empty() && RemindedVersion == version;
 }
 
 void Updater::RemindLater()
 {
-    try
-    {
-        json root;
-        root["skippedVersion"] = Pending.LatestVersion;
-
-        std::ofstream file(SkippedVersionsFilePath(), std::ios::trunc);
-        if (file.is_open())
-            file << root.dump(2);
-    }
-    catch (...) {}
-
+    RemindedVersion = Pending.LatestVersion;
     CurrentState = UpdateState::Idle;
 }
 
-void Updater::CheckForUpdatesAsync()
+void Updater::CheckForUpdatesAsync(bool isManualCheck)
 {
     if (CheckInFlight)
         return;
 
     CheckInFlight = true;
+    CheckWasManual = isManualCheck;
     CurrentState = UpdateState::Checking;
     Error.clear();
 
@@ -578,7 +532,9 @@ void Updater::RunDownloadThread()
 void Updater::Poll()
 {
     auto* cs = (CRITICAL_SECTION*)ResultMutex;
-    if (!cs) return;
+
+    if (!cs) 
+        return;
 
     EnterCriticalSection(cs);
 
@@ -614,7 +570,7 @@ void Updater::Poll()
         }
         else
         {
-            if (IsVersionSkipped(info.LatestVersion))
+            if (!CheckWasManual && IsVersionSnoozed(info.LatestVersion))
             {
                 CurrentState = UpdateState::UpToDate;
             }

@@ -14,6 +14,7 @@ public:
     static bool SaveOne(const Macro& macro, const std::string& filepath);
     static int Append(std::vector<Macro>& macros, const std::string& filepath);
     static int ImportMGP(std::vector<Macro>& macros, const std::string& filepath);
+    static int ImportMRF(std::vector<Macro>& macros, const std::string& filepath);
     static bool SaveSettings(const RecorderOptions& options, const std::string& filepath);
     static bool LoadSettings(RecorderOptions& options, const std::string& filepath);
     static std::string LoadLastSeenVersion();

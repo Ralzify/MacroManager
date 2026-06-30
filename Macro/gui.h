@@ -53,6 +53,7 @@ private:
     void CopySelectedActions(const Macro & macroRef);
     void PasteClipboardActions(Macro & macroRef);
     void DeleteSelectedActions(Macro & macroRef);
+    void RequestDeleteSelectedActions(Macro& macroRef);
     void ClearActionSelection();
     bool IsActionSelected(int idx) const;
 
@@ -102,6 +103,8 @@ private:
     bool CapturingRecordKey = false;
     bool ConfirmClearActions = false;
     std::string ConfirmDeleteMacroId;
+    bool ConfirmDeleteActions = false;
+    std::string ConfirmDeleteActionsMacroId;
 
     bool LockInputToTab = false;
     std::vector<std::pair<std::string, std::string>> LockedAppList;
